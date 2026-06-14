@@ -167,6 +167,53 @@ func (h *DocumentHandler) GetByID(c *fiber.Ctx) error {
 	})
 }
 
+// GetPreview godoc
+// @Summary      Get document preview with chunks
+// @Description  Get document metadata and text chunks for preview
+// @Tags         Documents
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Document ID"
+// @Success      200  {object}  dto.DocumentPreviewResponse
+// @Failure      404  {object}  dto.ErrorResponse
+// @Failure      500  {object}  dto.ErrorResponse
+// @Router       /api/documents/{id}/chunks [get]
+func (h *DocumentHandler) GetPreview(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	documentID := c.Params("id")
+
+	doc, chunks, err := h.docUsecase.GetDocumentPreview(c.Context(), documentID, userID)
+	if err != nil {
+		if err.Error() == "document not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var chunkInfos []dto.DocumentChunkInfo
+	for _, chunk := range chunks {
+		chunkInfos = append(chunkInfos, dto.DocumentChunkInfo{
+			ChunkIndex: chunk.ChunkIndex,
+			Content:    chunk.Content,
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(dto.DocumentPreviewResponse{
+		Document: dto.DocumentInfo{
+			ID:           doc.ID,
+			Filename:     doc.Filename,
+			OriginalName: doc.OriginalName,
+			FileSize:     doc.FileSize,
+			MimeType:     doc.MimeType,
+			Status:       string(doc.Status),
+			TotalChunks:  doc.TotalChunks,
+			Visibility:   string(doc.Visibility),
+			CreatedAt:    doc.CreatedAt,
+		},
+		Chunks: chunkInfos,
+	})
+}
+
 // Delete godoc
 // @Summary      Delete a document
 // @Description  Delete a document by ID

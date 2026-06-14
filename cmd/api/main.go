@@ -86,6 +86,7 @@ func main() {
 
 	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)
+	protected.Get("/documents/:id/chunks", docHandler.GetPreview)
 	protected.Get("/documents/:id", docHandler.GetByID)
 	protected.Delete("/documents/:id", docHandler.Delete)
 	protected.Post("/documents/query", middleware.QueryRateLimit(cfg), docHandler.Query)

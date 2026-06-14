@@ -206,6 +206,31 @@ func (uc *DocumentUsecase) GetDocumentByID(
 
 }
 
+func (uc *DocumentUsecase) GetDocumentPreview(
+	ctx context.Context,
+	documentID string,
+	userID string,
+) (*entity.Document, []entity.DocumentChunk, error) {
+	doc, err := uc.docRepo.FindByID(ctx, documentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if doc == nil {
+		return nil, nil, fmt.Errorf("document not found")
+	}
+
+	if doc.UserID != userID && doc.Visibility != entity.VisibilityPublic {
+		return nil, nil, fmt.Errorf("document not found")
+	}
+
+	chunks, err := uc.chunkRepo.FindByDocumentID(ctx, documentID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get document chunks: %w", err)
+	}
+
+	return doc, chunks, nil
+}
+
 // delete
 func (uc *DocumentUsecase) DeleteDocument(
 	ctx context.Context,
@@ -234,6 +259,9 @@ func (uc *DocumentUsecase) QueryDocuments(
 	ctx context.Context,
 	query string,
 ) (string, []entity.SimilarChunk, error) {
+	if isGreeting(query) {
+		return "Halo! Saya siap membantu Anda. Silakan tanyakan apa saja tentang dokumen yang telah Anda upload.", nil, nil
+	}
 
 	// 1. generate embedding untuk query
 	queryEmbedding, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{query})

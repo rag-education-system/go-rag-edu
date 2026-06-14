@@ -51,3 +51,13 @@ type ChunkSource struct {
 	Similarity float64 `json:"similarity"`
 	ChunkIndex int     `json:"chunkIndex"`
 }
+
+type DocumentChunkInfo struct {
+	ChunkIndex int    `json:"chunkIndex"`
+	Content    string `json:"content"`
+}
+
+type DocumentPreviewResponse struct {
+	Document DocumentInfo        `json:"document"`
+	Chunks   []DocumentChunkInfo `json:"chunks"`
+}

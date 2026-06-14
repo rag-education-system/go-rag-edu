@@ -122,6 +122,22 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 	return chunks, nil
 }
 
+func (r *chunkRepository) FindByDocumentID(ctx context.Context, documentID string) ([]entity.DocumentChunk, error) {
+	query := `
+		SELECT "id", "documentId", "chunkIndex", "content", "metadata", "createdAt"
+		FROM "document_chunks"
+		WHERE "documentId" = $1
+		ORDER BY "chunkIndex" ASC
+	`
+
+	var chunks []entity.DocumentChunk
+	if err := r.db.SelectContext(ctx, &chunks, query, documentID); err != nil {
+		return nil, err
+	}
+
+	return chunks, nil
+}
+
 // DeleteByDocumentID deletes all chunks containing the document ID
 func (r *chunkRepository) DeleteByDocumentID(ctx context.Context, documentID string) error {
 	query := `DELETE FROM "document_chunks" WHERE "documentId" = $1`
