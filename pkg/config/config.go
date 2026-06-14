@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -24,6 +25,25 @@ type Config struct {
 	ChunkOverlap        int
 	TopKResults         int
 	SimilarityThreshold float64
+
+	// security / anti-abuse
+	BodyLimitMB            int
+	ReadTimeout            time.Duration
+	WriteTimeout           time.Duration
+	IdleTimeout            time.Duration
+	RequestTimeout         time.Duration
+	TrustedProxies         []string
+	CORSOrigins            []string
+	RateLimitGlobalMax     int
+	RateLimitGlobalWindow  time.Duration
+	RateLimitAuthMax       int
+	RateLimitAuthWindow    time.Duration
+	RateLimitQueryMax      int
+	RateLimitQueryWindow   time.Duration
+	RateLimitUploadMax     int
+	RateLimitUploadWindow  time.Duration
+	RateLimitAdminMax      int
+	RateLimitAdminWindow   time.Duration
 }
 
 func Load() *Config {
@@ -41,18 +61,33 @@ func Load() *Config {
 		JWTExpiration: jwtExp,
 		Port:          port,
 
-		// OpenAI
 		OpenAIKey:            getEnv("OPENAI_API_KEY", ""),
 		OpenAIEmbeddingModel: getEnv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
 		OpenAIChatModel:      getEnv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
 
-		// RAG Config
 		ChunkSize:           getEnvInt("CHUNK_SIZE", 1000),
 		ChunkOverlap:        getEnvInt("CHUNK_OVERLAP", 200),
 		TopKResults:         getEnvInt("TOP_K_RESULTS", 6),
 		SimilarityThreshold: getEnvFloat("SIMILARITY_THRESHOLD", 0.5),
-	}
 
+		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 12),
+		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 10*time.Second),
+		WriteTimeout:          getEnvDuration("WRITE_TIMEOUT", 30*time.Second),
+		IdleTimeout:           getEnvDuration("IDLE_TIMEOUT", 120*time.Second),
+		RequestTimeout:        getEnvDuration("REQUEST_TIMEOUT", 60*time.Second),
+		TrustedProxies:        getEnvCSV("TRUSTED_PROXIES"),
+		CORSOrigins:           getEnvCSV("CORS_ORIGINS"),
+		RateLimitGlobalMax:    getEnvInt("RATE_LIMIT_GLOBAL_MAX", 120),
+		RateLimitGlobalWindow: getEnvDuration("RATE_LIMIT_GLOBAL_WINDOW", time.Minute),
+		RateLimitAuthMax:      getEnvInt("RATE_LIMIT_AUTH_MAX", 10),
+		RateLimitAuthWindow:   getEnvDuration("RATE_LIMIT_AUTH_WINDOW", 15*time.Minute),
+		RateLimitQueryMax:     getEnvInt("RATE_LIMIT_QUERY_MAX", 20),
+		RateLimitQueryWindow:  getEnvDuration("RATE_LIMIT_QUERY_WINDOW", time.Minute),
+		RateLimitUploadMax:    getEnvInt("RATE_LIMIT_UPLOAD_MAX", 5),
+		RateLimitUploadWindow: getEnvDuration("RATE_LIMIT_UPLOAD_WINDOW", time.Minute),
+		RateLimitAdminMax:     getEnvInt("RATE_LIMIT_ADMIN_MAX", 30),
+		RateLimitAdminWindow:  getEnvDuration("RATE_LIMIT_ADMIN_WINDOW", time.Minute),
+	}
 }
 
 func getEnv(key, defaultVal string) string {
@@ -78,4 +113,30 @@ func getEnvFloat(key string, defaultVal float64) float64 {
 		}
 	}
 	return defaultVal
+}
+
+func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+	return defaultVal
+}
+
+func getEnvCSV(key string) []string {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return nil
+	}
+
+	parts := strings.Split(val, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	fiberSwagger "github.com/swaggo/fiber-swagger"
 
-	// log
 	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
@@ -33,7 +32,6 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// connect to database
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -41,16 +39,13 @@ func main() {
 	defer db.Close()
 	log.Println("connected to database")
 
-	// initialize openai client
 	embeddingClient := openai.NewEmbeddingClient(cfg.OpenAIKey, cfg.OpenAIEmbeddingModel)
 	chatClient := openai.NewChatClient(cfg.OpenAIKey, cfg.OpenAIChatModel)
 
-	// initialize repository
 	userRepo := postgres.NewUserRepository(db)
 	docRepo := postgres.NewDocumentRepository(db)
 	chunkRepo := postgres.NewChunkRepository(db)
 
-	// initialize usecase
 	authUsecase := auth.NewAuthUsecase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	docUsecase := document.NewDocumentUsecase(
 		docRepo,
@@ -63,45 +58,39 @@ func main() {
 		cfg.SimilarityThreshold,
 	)
 
-	// initialize handler
 	authHandler := handler.NewAuthHandler(authUsecase)
 	userHandler := handler.NewUserHandler(authUsecase)
 	docHandler := handler.NewDocumentHandler(docUsecase)
 
-	// initialize fiber app
-	app := fiber.New()
-
-	// middleware for log request and response in terminal
+	app := fiber.New(middleware.FiberConfig(cfg))
+	middleware.ApplySecurity(app, cfg)
 	app.Use(logger.New())
 
-	// Swagger route
 	app.Get("/swagger/*", fiberSwagger.WrapHandler)
 
-	// Public Routes
 	api := app.Group("/api")
-	api.Post("/auth/login", authHandler.Login)
+	api.Post("/auth/login", middleware.AuthRateLimit(cfg), authHandler.Login)
 
-	// Protected Routes
 	protected := api.Group("", middleware.JWTAuth(cfg.JWTSecret))
 	protected.Get("/auth/me", authHandler.Me)
 
-	// Admin-only user management
-	admin := protected.Group("", middleware.RequireAdmin())
+	admin := protected.Group("", middleware.RequireAdmin(), middleware.AdminRateLimit(cfg))
 	admin.Post("/users", userHandler.CreateUser)
 	admin.Get("/users", userHandler.ListUsers)
 
-	// document routes
-	protected.Post("/documents/upload", docHandler.Upload)
+	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)
 	protected.Get("/documents/:id", docHandler.GetByID)
 	protected.Delete("/documents/:id", docHandler.Delete)
-	protected.Post("/documents/query", docHandler.Query)
+	protected.Post("/documents/query", middleware.QueryRateLimit(cfg), docHandler.Query)
 
-	//
-	//
-	//
-	// Start server
 	log.Printf("🚀 Server starting on port %d", cfg.Port)
+	log.Printf("🛡️  Anti-abuse: global=%d/%s auth=%d/%s query=%d/%s upload=%d/%s",
+		cfg.RateLimitGlobalMax, cfg.RateLimitGlobalWindow,
+		cfg.RateLimitAuthMax, cfg.RateLimitAuthWindow,
+		cfg.RateLimitQueryMax, cfg.RateLimitQueryWindow,
+		cfg.RateLimitUploadMax, cfg.RateLimitUploadWindow,
+	)
 	log.Printf("📚 Swagger UI: http://localhost:%d/swagger/index.html", cfg.Port)
 	if err := app.Listen(fmt.Sprintf(":%d", cfg.Port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
