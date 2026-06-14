@@ -65,6 +65,7 @@ func main() {
 
 	// initialize handler
 	authHandler := handler.NewAuthHandler(authUsecase)
+	userHandler := handler.NewUserHandler(authUsecase)
 	docHandler := handler.NewDocumentHandler(docUsecase)
 
 	// initialize fiber app
@@ -78,12 +79,16 @@ func main() {
 
 	// Public Routes
 	api := app.Group("/api")
-	api.Post("/auth/register", authHandler.Register)
 	api.Post("/auth/login", authHandler.Login)
 
 	// Protected Routes
 	protected := api.Group("", middleware.JWTAuth(cfg.JWTSecret))
 	protected.Get("/auth/me", authHandler.Me)
+
+	// Admin-only user management
+	admin := protected.Group("", middleware.RequireAdmin())
+	admin.Post("/users", userHandler.CreateUser)
+	admin.Get("/users", userHandler.ListUsers)
 
 	// document routes
 	protected.Post("/documents/upload", docHandler.Upload)

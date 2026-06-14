@@ -74,6 +74,23 @@ func (uc *AuthUsecase) Register(
 	return user, nil
 }
 
+func (uc *AuthUsecase) CreateUserByAdmin(
+	ctx context.Context,
+	email, pass, name, major string,
+	role entity.UserRole,
+) (*entity.User, error) {
+	role = entity.UserRole(strings.ToUpper(string(role)))
+	if role != entity.RoleStudent && role != entity.RoleTeacher {
+		return nil, errors.New("admin can only create STUDENT or TEACHER accounts")
+	}
+
+	return uc.Register(ctx, email, pass, name, major, role)
+}
+
+func (uc *AuthUsecase) ListUsers(ctx context.Context) ([]entity.User, error) {
+	return uc.userRepo.ListAll(ctx)
+}
+
 // login user
 func (uc *AuthUsecase) Login(
 	ctx context.Context,

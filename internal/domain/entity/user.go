@@ -5,9 +5,9 @@ import "time"
 type UserRole string
 
 const (
-	RoleStudent UserRole = "student"
-	RoleTeacher UserRole = "teacher"
-	RoleAdmin   UserRole = "admin"
+	RoleStudent UserRole = "STUDENT"
+	RoleTeacher UserRole = "TEACHER"
+	RoleAdmin   UserRole = "ADMIN"
 )
 
 type User struct {
@@ -20,5 +20,3 @@ type User struct {
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
 }
-
-
