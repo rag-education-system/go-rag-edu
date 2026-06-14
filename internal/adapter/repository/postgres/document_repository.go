@@ -64,26 +64,42 @@ func (r *documentRepository) FindByIDAndUserID(ctx context.Context, id, userID s
 }
 
 // list document
-func (r *documentRepository) List(ctx context.Context, userID string, page, limit int) ([]entity.Document, int, error) {
+func (r *documentRepository) List(
+	ctx context.Context,
+	userID string,
+	page, limit int,
+	status *entity.DocumentStatus,
+) ([]entity.Document, int, error) {
 	offset := (page - 1) * limit
 
-	// get document
 	var docs []entity.Document
+	var total int
+
+	if status != nil {
+		query := `SELECT * FROM documents WHERE "userId" = $1 AND status = $2 ORDER BY "createdAt" DESC LIMIT $3 OFFSET $4`
+		if err := r.db.SelectContext(ctx, &docs, query, userID, *status, limit, offset); err != nil {
+			return nil, 0, err
+		}
+
+		countQuery := `SELECT COUNT(*) FROM documents WHERE "userId" = $1 AND status = $2`
+		if err := r.db.GetContext(ctx, &total, countQuery, userID, *status); err != nil {
+			return nil, 0, err
+		}
+
+		return docs, total, nil
+	}
+
 	query := `SELECT * FROM documents WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT $2 OFFSET $3`
-	err := r.db.SelectContext(ctx, &docs, query, userID, limit, offset)
-	if err != nil {
+	if err := r.db.SelectContext(ctx, &docs, query, userID, limit, offset); err != nil {
 		return nil, 0, err
 	}
 
-	var total int
-	query = `SELECT COUNT(*) FROM documents WHERE "userId" = $1`
-	err = r.db.GetContext(ctx, &total, query, userID)
-	if err != nil {
+	countQuery := `SELECT COUNT(*) FROM documents WHERE "userId" = $1`
+	if err := r.db.GetContext(ctx, &total, countQuery, userID); err != nil {
 		return nil, 0, err
 	}
 
 	return docs, total, nil
-
 }
 
 // update  status

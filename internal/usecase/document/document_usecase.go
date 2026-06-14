@@ -184,8 +184,9 @@ func (uc *DocumentUsecase) ListDocuments(
 	ctx context.Context,
 	userID string,
 	page, limit int,
+	status *entity.DocumentStatus,
 ) ([]entity.Document, int, error) {
-	return uc.docRepo.List(ctx, userID, page, limit)
+	return uc.docRepo.List(ctx, userID, page, limit, status)
 }
 
 // get document by id

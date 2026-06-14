@@ -85,8 +85,9 @@ func (h *DocumentHandler) Upload(c *fiber.Ctx) error {
 // @Tags         Documents
 // @Produce      json
 // @Security     BearerAuth
-// @Param        page   query  int  false  "Page number" default(1)
-// @Param        limit  query  int  false  "Items per page" default(10)
+// @Param        page    query  int     false  "Page number" default(1)
+// @Param        limit   query  int     false  "Items per page" default(10)
+// @Param        status  query  string  false  "Filter by status (PROCESSING, COMPLETED, FAILED)"
 // @Success      200  {object}  dto.ListDocumentsResponse
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents [get]
@@ -95,8 +96,9 @@ func (h *DocumentHandler) List(c *fiber.Ctx) error {
 
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	statusFilter := parseDocumentStatusFilter(c.Query("status"))
 
-	docs, total, err := h.docUsecase.ListDocuments(c.Context(), userID, page, limit)
+	docs, total, err := h.docUsecase.ListDocuments(c.Context(), userID, page, limit, statusFilter)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -285,4 +287,20 @@ func toChatHistory(history []dto.ChatHistoryMessage) []document.ChatMessage {
 		})
 	}
 	return messages
+}
+
+func parseDocumentStatusFilter(status string) *entity.DocumentStatus {
+	switch status {
+	case string(entity.StatusProcessing):
+		value := entity.StatusProcessing
+		return &value
+	case string(entity.StatusCompleted):
+		value := entity.StatusCompleted
+		return &value
+	case string(entity.StatusFailed):
+		value := entity.StatusFailed
+		return &value
+	default:
+		return nil
+	}
 }
