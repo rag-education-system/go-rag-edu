@@ -11,6 +11,39 @@ definitions:
       similarity:
         type: number
     type: object
+  dto.CreateUserRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      major:
+        example: Computer Science
+        type: string
+      name:
+        example: John Doe
+        type: string
+      password:
+        example: password123
+        type: string
+      role:
+        enum:
+        - STUDENT
+        - TEACHER
+        example: STUDENT
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+  dto.CreateUserResponse:
+    properties:
+      message:
+        example: User created successfully
+        type: string
+      user:
+        $ref: '#/definitions/dto.UserInfo'
+    type: object
   dto.DocumentInfo:
     properties:
       createdAt:
@@ -46,6 +79,13 @@ definitions:
         type: array
       meta:
         $ref: '#/definitions/dto.PaginationMeta'
+    type: object
+  dto.ListUsersResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/dto.UserInfo'
+        type: array
     type: object
   dto.LoginRequest:
     properties:
@@ -427,6 +467,70 @@ paths:
       summary: Upload a document
       tags:
       - Documents
+  /api/users:
+    get:
+      consumes:
+      - application/json
+      description: Get all registered users
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ListUsersResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all users (admin only)
+      tags:
+      - Users
+    post:
+      consumes:
+      - application/json
+      description: Admin creates a STUDENT or TEACHER account
+      parameters:
+      - description: Create User Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.CreateUserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a new user (admin only)
+      tags:
+      - Users
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.

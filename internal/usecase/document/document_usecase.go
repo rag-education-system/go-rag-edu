@@ -27,7 +27,7 @@ type DocumentUsecase struct {
 	chunkRepo   repository.ChunkRepository
 	embedder    EmbeddingService
 	chatService ChatService
-	extractor   *TextExtractor
+	extractor   *ContentExtractor
 	chunker     *Chunker
 	topK        int
 	threshold   float64
@@ -41,13 +41,16 @@ func NewDocumentUsecase(
 	chunkSize, chunkOverlap int,
 	topK int,
 	threshold float64,
+	ocrEnabled bool,
+	ocrLang string,
+	ocrMinTextLength int,
 ) *DocumentUsecase {
 	return &DocumentUsecase{
 		docRepo:     docRepo,
 		chunkRepo:   chunkRepo,
 		embedder:    embedder,
 		chatService: chatService,
-		extractor:   NewTextExtractor(),
+		extractor:   NewContentExtractor(ocrEnabled, ocrLang, ocrMinTextLength),
 		chunker:     NewChunker(chunkSize, chunkOverlap),
 		topK:        topK,
 		threshold:   threshold,
@@ -67,7 +70,7 @@ func (uc *DocumentUsecase) UploadDocument(
 	// create document record
 	doc := &entity.Document{
 		UserID:       userID,
-		Filename:     fmt.Sprintf("%d_%d_%s", userID, time.Now().Unix(), filename),
+		Filename:     fmt.Sprintf("%s_%d_%s", userID, time.Now().Unix(), filename),
 		OriginalName: filename,
 		FileSize:     int64(len(fileData)),
 		MimeType:     mimeType,
@@ -109,23 +112,22 @@ func (uc DocumentUsecase) ProcessDocument(
 ) error {
 	log.Printf("Starting processing for document %s", documentID)
 
-	// 1 extract text
-	var text string
-	var err error
-
-	if mimeType == "application/pdf" {
-		text, err = uc.extractor.ExtractFromPDF(fileData)
-		if err != nil {
-			return fmt.Errorf("failed to extract text: %w", err)
-		}
-	} else {
-		return fmt.Errorf("unsupported file type: %s", mimeType)
+	// 1 extract text (plain PDF text layer and/or Tesseract OCR)
+	extraction, err := uc.extractor.Extract(fileData, mimeType)
+	if err != nil {
+		return fmt.Errorf("failed to extract content: %w", err)
 	}
 
+	text := strings.TrimSpace(extraction.Text)
 	if len(text) == 0 {
 		return fmt.Errorf("no text extracted from document")
 	}
-	log.Printf("Extracted %d characters from document %s", len(text), documentID)
+	log.Printf(
+		"Extracted %d characters from document %s (source=%s)",
+		len(text),
+		documentID,
+		extraction.Source,
+	)
 
 	// 2 chunk text
 	textChunks := uc.chunker.ChunkText(text)
@@ -145,7 +147,7 @@ func (uc DocumentUsecase) ProcessDocument(
 	var chunks []entity.DocumentChunk
 	for i, content := range textChunks {
 		metadata, _ := json.Marshal(entity.ChunkMetadata{
-			Source:     "text",
+			Source:     extraction.Source,
 			PageNumber: i/10 + 1,
 		})
 		chunks = append(chunks, entity.DocumentChunk{

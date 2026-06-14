@@ -44,6 +44,11 @@ type Config struct {
 	RateLimitUploadWindow  time.Duration
 	RateLimitAdminMax      int
 	RateLimitAdminWindow   time.Duration
+
+	// OCR (Tesseract)
+	OCREnabled       bool
+	OCRLang          string
+	OCRMinTextLength int
 }
 
 func Load() *Config {
@@ -87,6 +92,10 @@ func Load() *Config {
 		RateLimitUploadWindow: getEnvDuration("RATE_LIMIT_UPLOAD_WINDOW", time.Minute),
 		RateLimitAdminMax:     getEnvInt("RATE_LIMIT_ADMIN_MAX", 30),
 		RateLimitAdminWindow:  getEnvDuration("RATE_LIMIT_ADMIN_WINDOW", time.Minute),
+
+		OCREnabled:       getEnvBool("OCR_ENABLED", true),
+		OCRLang:          getEnv("OCR_LANG", "ind+eng"),
+		OCRMinTextLength: getEnvInt("OCR_MIN_TEXT_LENGTH", 80),
 	}
 }
 
@@ -110,6 +119,18 @@ func getEnvFloat(key string, defaultVal float64) float64 {
 	if val := os.Getenv(key); val != "" {
 		if f, err := strconv.ParseFloat(val, 64); err == nil {
 			return f
+		}
+	}
+	return defaultVal
+}
+
+func getEnvBool(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
 		}
 	}
 	return defaultVal

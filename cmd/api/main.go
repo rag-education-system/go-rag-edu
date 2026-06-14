@@ -56,6 +56,9 @@ func main() {
 		cfg.ChunkOverlap,
 		cfg.TopKResults,
 		cfg.SimilarityThreshold,
+		cfg.OCREnabled,
+		cfg.OCRLang,
+		cfg.OCRMinTextLength,
 	)
 
 	authHandler := handler.NewAuthHandler(authUsecase)
@@ -77,6 +80,7 @@ func main() {
 	admin := protected.Group("", middleware.RequireAdmin(), middleware.AdminRateLimit(cfg))
 	admin.Post("/users", userHandler.CreateUser)
 	admin.Get("/users", userHandler.ListUsers)
+	admin.Put("/users/:id", userHandler.UpdateUser)
 
 	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)
@@ -92,6 +96,7 @@ func main() {
 		cfg.RateLimitUploadMax, cfg.RateLimitUploadWindow,
 	)
 	log.Printf("📚 Swagger UI: http://localhost:%d/swagger/index.html", cfg.Port)
+	log.Printf("🔎 OCR: enabled=%t lang=%s min_text=%d", cfg.OCREnabled, cfg.OCRLang, cfg.OCRMinTextLength)
 	if err := app.Listen(fmt.Sprintf(":%d", cfg.Port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
