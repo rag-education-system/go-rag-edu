@@ -29,6 +29,23 @@ type ListUsersResponse struct {
 	Data []AdminUserInfo `json:"data"`
 }
 
+type BulkImportUsersResponse struct {
+	Message string              `json:"message"`
+	Total   int                 `json:"total"`
+	Success int                 `json:"success"`
+	Failed  int                 `json:"failed"`
+	Results []BulkImportResult  `json:"results"`
+}
+
+type BulkImportResult struct {
+	Row      int    `json:"row"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Success  bool   `json:"success"`
+	Error    string `json:"error,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 type CreateUserResponse struct {
 	Message string        `json:"message" example:"User created successfully"`
 	User    AdminUserInfo `json:"user"`

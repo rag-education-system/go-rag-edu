@@ -81,6 +81,8 @@ func main() {
 	admin.Post("/users", userHandler.CreateUser)
 	admin.Get("/users", userHandler.ListUsers)
 	admin.Put("/users/:id", userHandler.UpdateUser)
+	admin.Post("/users/import", userHandler.BulkImportUsers)
+	admin.Get("/users/import/template", userHandler.DownloadImportTemplate)
 
 	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)

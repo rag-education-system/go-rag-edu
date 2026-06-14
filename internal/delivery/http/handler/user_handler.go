@@ -6,6 +6,7 @@ import (
 	"rag-api/internal/delivery/http/dto"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/usecase/auth"
+	"rag-api/pkg/userimport"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -155,4 +156,83 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		Message: "User updated successfully",
 		User:    toAdminUserInfo(*user),
 	})
+}
+
+const maxImportFileSize = 5 * 1024 * 1024
+
+// BulkImportUsers godoc
+// @Summary      Bulk import users from CSV/XLSX (admin only)
+// @Description  Import multiple STUDENT or TEACHER accounts from spreadsheet file
+// @Tags         Users
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        file  formData  file  true  "CSV or XLSX file"
+// @Success      200   {object}  dto.BulkImportUsersResponse
+// @Failure      400   {object}  dto.ErrorResponse
+// @Failure      500   {object}  dto.ErrorResponse
+// @Router       /api/users/import [post]
+func (h *UserHandler) BulkImportUsers(c *fiber.Ctx) error {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file wajib diunggah"})
+	}
+
+	fileHandle, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "gagal membuka file"})
+	}
+	defer fileHandle.Close()
+
+	data, err := userimport.ReadLimited(fileHandle, maxImportFileSize)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	rows, err := userimport.ParseFile(file.Filename, data)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	summary := h.authUsecase.BulkCreateUsersByAdmin(c.Context(), rows)
+	results := make([]dto.BulkImportResult, 0, len(summary.Results))
+	for _, item := range summary.Results {
+		results = append(results, dto.BulkImportResult{
+			Row:      item.Row,
+			Email:    item.Email,
+			Name:     item.Name,
+			Success:  item.Success,
+			Error:    item.Error,
+			Password: item.Password,
+		})
+	}
+
+	message := "Import selesai"
+	if summary.Failed > 0 && summary.Success == 0 {
+		message = "Semua baris gagal diimport"
+	} else if summary.Failed > 0 {
+		message = "Import selesai dengan beberapa baris gagal"
+	}
+
+	return c.Status(fiber.StatusOK).JSON(dto.BulkImportUsersResponse{
+		Message: message,
+		Total:   summary.Total,
+		Success: summary.Success,
+		Failed:  summary.Failed,
+		Results: results,
+	})
+}
+
+// DownloadImportTemplate godoc
+// @Summary      Download user import CSV template (admin only)
+// @Description  Download CSV template for bulk user import
+// @Tags         Users
+// @Produce      text/csv
+// @Security     BearerAuth
+// @Success      200  {string}  string
+// @Router       /api/users/import/template [get]
+func (h *UserHandler) DownloadImportTemplate(c *fiber.Ctx) error {
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("Content-Disposition", `attachment; filename="template-import-pengguna.csv"`)
+	return c.SendString(userimport.TemplateCSV())
 }
