@@ -15,7 +15,7 @@ import (
 )
 
 type ChatService interface {
-	GenerateAnswer(ctx context.Context, query, context string) (string, error)
+	GenerateAnswer(ctx context.Context, query, docContext string, history []ChatMessage) (string, error)
 }
 
 type EmbeddingService interface {
@@ -258,13 +258,19 @@ func (uc *DocumentUsecase) DeleteDocument(
 func (uc *DocumentUsecase) QueryDocuments(
 	ctx context.Context,
 	query string,
+	history []ChatMessage,
 ) (string, []entity.SimilarChunk, error) {
-	if isGreeting(query) {
+	query = strings.TrimSpace(query)
+	history = normalizeHistory(history)
+
+	if isGreeting(query) && len(history) == 0 {
 		return "Halo! Saya siap membantu Anda. Silakan tanyakan apa saja tentang dokumen yang telah Anda upload.", nil, nil
 	}
 
+	searchQuery := buildSearchQuery(query, history)
+
 	// 1. generate embedding untuk query
-	queryEmbedding, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{query})
+	queryEmbedding, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{searchQuery})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to  generate query embedding: %w", err)
 	}
@@ -289,7 +295,7 @@ func (uc *DocumentUsecase) QueryDocuments(
 	}
 
 	// 4, generate answer using LLM
-	answer, err := uc.chatService.GenerateAnswer(ctx, query, contextBuilder.String())
+	answer, err := uc.chatService.GenerateAnswer(ctx, query, contextBuilder.String(), history)
 	if err != nil {
 		return "", chunks, fmt.Errorf("failed to generate answer: %w", err)
 	}

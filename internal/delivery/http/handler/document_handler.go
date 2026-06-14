@@ -253,7 +253,7 @@ func (h *DocumentHandler) Query(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), req.Query)
+	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), req.Query, toChatHistory(req.History))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -274,4 +274,15 @@ func (h *DocumentHandler) Query(c *fiber.Ctx) error {
 		Answer:  answer,
 		Sources: sources,
 	})
+}
+
+func toChatHistory(history []dto.ChatHistoryMessage) []document.ChatMessage {
+	messages := make([]document.ChatMessage, 0, len(history))
+	for _, item := range history {
+		messages = append(messages, document.ChatMessage{
+			Role:    item.Role,
+			Content: item.Content,
+		})
+	}
+	return messages
 }

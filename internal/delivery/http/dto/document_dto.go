@@ -36,7 +36,13 @@ type PaginationMeta struct {
 
 
 type QueryDocumentRequest struct {
-	Query string `json:"query" binding:"required"`
+	Query   string               `json:"query" binding:"required"`
+	History []ChatHistoryMessage `json:"history"`
+}
+
+type ChatHistoryMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type QueryDocumentResponse struct {

@@ -12,6 +12,11 @@ type ChatClient struct {
 	model  string
 }
 
+type HistoryMessage struct {
+	Role    string
+	Content string
+}
+
 func NewChatClient(apiKey, model string) *ChatClient {
 	return &ChatClient{
 		client: openai.NewClient(apiKey),
@@ -19,39 +24,53 @@ func NewChatClient(apiKey, model string) *ChatClient {
 	}
 }
 
-// generate answer
 func (c *ChatClient) GenerateAnswer(
 	ctx context.Context,
 	query string,
-	context string,
+	docContext string,
+	history []HistoryMessage,
 ) (string, error) {
 	systemPrompt := `Anda adalah asisten AI yang membantu menjawab pertanyaan berdasarkan dokumen yang diberikan.
-	
-	Instruksi:
-	1. Jawab pertanyaan HANYA berdasarkan konteks yang diberikan
-	2. Jika informasi tidak ada dalam konteks, katakan "Maaf, saya tidak menemukan informasi tersebut dalam dokumen"
-	3. Berikan jawaban yang jelas, ringkas, dan terstruktur
-	4. Gunakan bahasa Indonesia yang baik dan benar`
+
+Instruksi:
+1. Jawab pertanyaan HANYA berdasarkan konteks dokumen yang diberikan
+2. Gunakan riwayat percakapan untuk memahami pertanyaan lanjutan (misalnya "jelaskan poin ketiga" atau "apa maksudnya")
+3. Jika informasi tidak ada dalam konteks dokumen, katakan "Maaf, saya tidak menemukan informasi tersebut dalam dokumen"
+4. Berikan jawaban yang jelas, ringkas, dan terstruktur
+5. Gunakan bahasa Indonesia yang baik dan benar`
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		},
+	}
+
+	for _, item := range history {
+		role := openai.ChatMessageRoleUser
+		if item.Role == "assistant" {
+			role = openai.ChatMessageRoleAssistant
+		}
+
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: item.Content,
+		})
+	}
 
 	userPrompt := fmt.Sprintf(`Konteks dari dokumen:
-	%s
+%s
 
-	Pertanyaan: %s
+Pertanyaan terbaru: %s`, docContext, query)
 
-	Jawaban:`, context, query)
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: userPrompt,
+	})
 
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: c.model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: systemPrompt,
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: userPrompt,
-			},
-		},
+		Model:       c.model,
+		Messages:    messages,
 		Temperature: 0.7,
 		MaxTokens:   700,
 	})

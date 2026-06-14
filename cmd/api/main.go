@@ -41,6 +41,7 @@ func main() {
 
 	embeddingClient := openai.NewEmbeddingClient(cfg.OpenAIKey, cfg.OpenAIEmbeddingModel)
 	chatClient := openai.NewChatClient(cfg.OpenAIKey, cfg.OpenAIChatModel)
+	chatService := openai.NewDocumentChatService(chatClient)
 
 	userRepo := postgres.NewUserRepository(db)
 	docRepo := postgres.NewDocumentRepository(db)
@@ -51,7 +52,7 @@ func main() {
 		docRepo,
 		chunkRepo,
 		embeddingClient,
-		chatClient,
+		chatService,
 		cfg.ChunkSize,
 		cfg.ChunkOverlap,
 		cfg.TopKResults,
