@@ -139,14 +139,25 @@ func (uc DocumentUsecase) ProcessDocument(
 		return fmt.Errorf("no text extracted from document")
 	}
 	log.Printf(
-		"Extracted %d characters from document %s (source=%s)",
+		"Extracted %d characters from document %s (source=%s, pages=%d)",
 		len(text),
 		documentID,
 		extraction.Source,
+		len(extraction.Pages),
 	)
 
-	// 2 chunk text
-	textChunks := uc.chunker.ChunkText(text)
+	var textChunks []string
+	var chunkPageNumbers []int
+	if len(extraction.Pages) > 0 {
+		textChunks, chunkPageNumbers = uc.chunker.ChunkPages(extraction.Pages)
+	} else {
+		textChunks = uc.chunker.ChunkText(text)
+		chunkPageNumbers = make([]int, len(textChunks))
+		for i := range chunkPageNumbers {
+			chunkPageNumbers[i] = 1
+		}
+	}
+
 	if len(textChunks) == 0 {
 		return fmt.Errorf("no chunks generated")
 	}
@@ -162,9 +173,14 @@ func (uc DocumentUsecase) ProcessDocument(
 	// 4 create chunks with embeddings
 	var chunks []entity.DocumentChunk
 	for i, content := range textChunks {
+		pageNumber := 1
+		if i < len(chunkPageNumbers) {
+			pageNumber = chunkPageNumbers[i]
+		}
+
 		metadata, _ := json.Marshal(entity.ChunkMetadata{
 			Source:     extraction.Source,
-			PageNumber: i/10 + 1,
+			PageNumber: pageNumber,
 		})
 		chunks = append(chunks, entity.DocumentChunk{
 			DocumentID: documentID,
@@ -375,21 +391,9 @@ func (uc *DocumentUsecase) QueryDocuments(
 		return "Halo! Saya siap membantu Anda. Silakan tanyakan apa saja tentang dokumen yang telah Anda upload.", nil, nil
 	}
 
-	searchQuery := buildSearchQuery(query, history)
-
-	// 1. generate embedding untuk query
-	queryEmbedding, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{searchQuery})
+	chunks, err := uc.searchRelevantChunks(ctx, query, history)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to  generate query embedding: %w", err)
-	}
-
-	// 2. search similar chunks
-	if len(queryEmbedding) == 0 {
-		return "", nil, fmt.Errorf("no embedding generated for query")
-	}
-	chunks, err := uc.chunkRepo.SearchSimilar(ctx, queryEmbedding[0], uc.topK, uc.threshold)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to search similar chunks: %w", err)
+		return "", nil, err
 	}
 
 	if len(chunks) == 0 {

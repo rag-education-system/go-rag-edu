@@ -35,9 +35,24 @@ func normalizeHistory(history []ChatMessage) []ChatMessage {
 	return normalized
 }
 
+func needsHistoryContext(query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	followUpHints := []string{
+		"jelaskan", "poin", "maksud", "yang tadi", "tersebut", "lanjut",
+		"ketiga", "kedua", "pertama", "keempat", "nomor", "pada bagian",
+		"itu", "tersebutnya", "tadi", "sebelumnya",
+	}
+	for _, hint := range followUpHints {
+		if strings.Contains(q, hint) {
+			return true
+		}
+	}
+	return false
+}
+
 func buildSearchQuery(query string, history []ChatMessage) string {
 	query = strings.TrimSpace(query)
-	if len(history) == 0 {
+	if len(history) == 0 || !needsHistoryContext(query) {
 		return query
 	}
 
@@ -46,9 +61,25 @@ func buildSearchQuery(query string, history []ChatMessage) string {
 		start = len(history) - maxHistoryForSearch
 	}
 
-	var builder strings.Builder
+	var userMessages []string
 	for _, message := range history[start:] {
-		builder.WriteString(message.Content)
+		if message.Role != "user" {
+			continue
+		}
+		userMessages = append(userMessages, message.Content)
+	}
+
+	if len(userMessages) == 0 {
+		return query
+	}
+
+	if len(userMessages) > 2 {
+		userMessages = userMessages[len(userMessages)-2:]
+	}
+
+	var builder strings.Builder
+	for _, message := range userMessages {
+		builder.WriteString(message)
 		builder.WriteString("\n")
 	}
 	builder.WriteString(query)

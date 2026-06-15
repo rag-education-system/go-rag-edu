@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"rag-api/internal/domain/entity"
@@ -114,6 +116,61 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 			&chunk.Similarity,
 		)
 		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks, nil
+}
+
+func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, topK int) ([]entity.SimilarChunk, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
+
+	conditions := make([]string, 0, len(terms))
+	args := make([]any, 0, len(terms)+1)
+	for i, term := range terms {
+		conditions = append(conditions, `dc."content" ILIKE $`+strconv.Itoa(i+1))
+		args = append(args, "%"+term+"%")
+	}
+	args = append(args, topK)
+
+	query := `
+		SELECT
+			dc."id",
+			dc."documentId",
+			dc."chunkIndex",
+			dc."content",
+			dc."metadata",
+			dc."createdAt",
+			0.55::float8 AS similarity
+		FROM "document_chunks" dc
+		INNER JOIN "documents" d ON dc."documentId" = d."id"
+		WHERE d."status" = 'COMPLETED'
+		AND (` + strings.Join(conditions, " OR ") + `)
+		ORDER BY dc."chunkIndex" ASC
+		LIMIT $` + strconv.Itoa(len(terms)+1)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chunks []entity.SimilarChunk
+	for rows.Next() {
+		var chunk entity.SimilarChunk
+		if err := rows.Scan(
+			&chunk.ID,
+			&chunk.DocumentID,
+			&chunk.ChunkIndex,
+			&chunk.Content,
+			&chunk.Metadata,
+			&chunk.CreatedAt,
+			&chunk.Similarity,
+		); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, chunk)

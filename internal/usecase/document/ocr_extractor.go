@@ -24,17 +24,40 @@ func NewOCRExtractor(lang string) *OCRExtractor {
 }
 
 func (o *OCRExtractor) ExtractFromImage(data []byte) (string, error) {
-	return o.runTesseract(data)
+	text, err := o.runTesseract(data)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(text), nil
+}
+
+func (o *OCRExtractor) ExtractPagesFromImage(data []byte) ([]PageText, error) {
+	text, err := o.ExtractFromImage(data)
+	if err != nil {
+		return nil, err
+	}
+	if text == "" {
+		return nil, fmt.Errorf("no text detected in image")
+	}
+	return []PageText{{PageNumber: 1, Text: text}}, nil
 }
 
 func (o *OCRExtractor) ExtractFromPDF(data []byte) (string, error) {
+	pages, err := o.ExtractPagesFromPDF(data)
+	if err != nil {
+		return "", err
+	}
+	return joinPageTexts(pages), nil
+}
+
+func (o *OCRExtractor) ExtractPagesFromPDF(data []byte) ([]PageText, error) {
 	doc, err := fitz.NewFromMemory(data)
 	if err != nil {
-		return "", fmt.Errorf("failed to open PDF for OCR: %w", err)
+		return nil, fmt.Errorf("failed to open PDF for OCR: %w", err)
 	}
 	defer doc.Close()
 
-	var pageTexts []string
+	var pages []PageText
 	for i := 0; i < doc.NumPage(); i++ {
 		img, err := doc.Image(i)
 		if err != nil {
@@ -51,16 +74,20 @@ func (o *OCRExtractor) ExtractFromPDF(data []byte) (string, error) {
 			continue
 		}
 
+		text = strings.TrimSpace(text)
 		if text != "" {
-			pageTexts = append(pageTexts, text)
+			pages = append(pages, PageText{
+				PageNumber: i + 1,
+				Text:       text,
+			})
 		}
 	}
 
-	if len(pageTexts) == 0 {
-		return "", fmt.Errorf("no text detected by OCR")
+	if len(pages) == 0 {
+		return nil, fmt.Errorf("no text detected by OCR")
 	}
 
-	return strings.Join(pageTexts, "\n\n"), nil
+	return pages, nil
 }
 
 func (o *OCRExtractor) runTesseract(imageData []byte) (string, error) {

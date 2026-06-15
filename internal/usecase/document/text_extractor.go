@@ -3,6 +3,7 @@ package document
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/ledongthuc/pdf"
 )
@@ -14,13 +15,20 @@ func NewTextExtractor() *TextExtractor {
 }
 
 func (te *TextExtractor) ExtractFromPDF(data []byte) (string, error) {
+	pages, err := te.ExtractPagesFromPDF(data)
+	if err != nil {
+		return "", err
+	}
+	return joinPageTexts(pages), nil
+}
+
+func (te *TextExtractor) ExtractPagesFromPDF(data []byte) ([]PageText, error) {
 	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", fmt.Errorf("failed to create PDF reader: %w", err)
+		return nil, fmt.Errorf("failed to create PDF reader: %w", err)
 	}
 
-	var fullText string
-	// Get total pages
+	var pages []PageText
 	numPages := reader.NumPage()
 
 	for i := 1; i <= numPages; i++ {
@@ -34,8 +42,16 @@ func (te *TextExtractor) ExtractFromPDF(data []byte) (string, error) {
 			continue
 		}
 
-		fullText += text + "\n"
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+
+		pages = append(pages, PageText{
+			PageNumber: i,
+			Text:       text,
+		})
 	}
 
-	return fullText, nil
+	return pages, nil
 }

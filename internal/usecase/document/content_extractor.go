@@ -8,6 +8,7 @@ import (
 type ExtractionResult struct {
 	Text   string
 	Source string
+	Pages  []PageText
 }
 
 type ContentExtractor struct {
@@ -63,11 +64,11 @@ func (ce *ContentExtractor) Extract(data []byte, mimeType string) (ExtractionRes
 }
 
 func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
-	plainText, err := ce.plain.ExtractFromPDF(data)
+	plainPages, err := ce.plain.ExtractPagesFromPDF(data)
 	if err != nil {
 		return ExtractionResult{}, fmt.Errorf("failed to extract PDF text: %w", err)
 	}
-	plainText = strings.TrimSpace(plainText)
+	plainText := strings.TrimSpace(joinPageTexts(plainPages))
 	plainGarbled := isGarbledText(plainText)
 	needsOCR := len(plainText) < ce.minTextLength || plainGarbled
 
@@ -75,6 +76,7 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		return ExtractionResult{
 			Text:   CleanReadableContent(plainText),
 			Source: "text",
+			Pages:  plainPages,
 		}, nil
 	}
 
@@ -85,30 +87,37 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		return ExtractionResult{
 			Text:   CleanReadableContent(plainText),
 			Source: "text",
+			Pages:  plainPages,
 		}, nil
 	}
 
-	ocrText, ocrErr := ce.ocr.ExtractFromPDF(data)
-	ocrText = strings.TrimSpace(ocrText)
+	ocrPages, ocrErr := ce.ocr.ExtractPagesFromPDF(data)
+	ocrText := strings.TrimSpace(joinPageTexts(ocrPages))
 
 	if ocrErr != nil {
 		if plainText != "" {
 			return ExtractionResult{
 				Text:   CleanReadableContent(plainText),
 				Source: "text",
+				Pages:  plainPages,
 			}, nil
 		}
 		return ExtractionResult{}, fmt.Errorf("OCR fallback failed: %w", ocrErr)
 	}
 
 	source := "ocr"
+	selectedPages := ocrPages
 	combined := ocrText
 	if plainText != "" && ocrText != "" {
 		source = "mixed"
 		combined = pickBetterExtractedText(plainText, ocrText)
+		if combined == plainText {
+			selectedPages = plainPages
+		}
 	} else if plainText != "" {
 		source = "text"
 		combined = plainText
+		selectedPages = plainPages
 	}
 
 	combined = CleanReadableContent(combined)
@@ -116,7 +125,7 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		return ExtractionResult{}, fmt.Errorf("no text extracted from document")
 	}
 
-	return ExtractionResult{Text: combined, Source: source}, nil
+	return ExtractionResult{Text: combined, Source: source, Pages: selectedPages}, nil
 }
 
 func (ce *ContentExtractor) extractImage(data []byte) (ExtractionResult, error) {
@@ -134,5 +143,9 @@ func (ce *ContentExtractor) extractImage(data []byte) (ExtractionResult, error) 
 		return ExtractionResult{}, fmt.Errorf("no text detected in image")
 	}
 
-	return ExtractionResult{Text: text, Source: "ocr"}, nil
+	return ExtractionResult{
+		Text:   text,
+		Source: "ocr",
+		Pages:  []PageText{{PageNumber: 1, Text: text}},
+	}, nil
 }
