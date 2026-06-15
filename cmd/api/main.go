@@ -7,6 +7,7 @@ import (
 	_ "rag-api/docs"
 	"rag-api/internal/adapter/openai"
 	"rag-api/internal/adapter/repository/postgres"
+	"rag-api/internal/adapter/storage"
 	"rag-api/internal/delivery/http/handler"
 	"rag-api/internal/delivery/http/middleware"
 	"rag-api/internal/usecase/auth"
@@ -32,6 +33,10 @@ import (
 func main() {
 	cfg := config.Load()
 
+	if cfg.SupabaseURL == "" || cfg.SupabaseServiceKey == "" {
+		log.Fatal("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for file storage")
+	}
+
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -46,11 +51,13 @@ func main() {
 	userRepo := postgres.NewUserRepository(db)
 	docRepo := postgres.NewDocumentRepository(db)
 	chunkRepo := postgres.NewChunkRepository(db)
+	fileStorage := storage.NewSupabaseStorage(cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseStorageBucket)
 
 	authUsecase := auth.NewAuthUsecase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	docUsecase := document.NewDocumentUsecase(
 		docRepo,
 		chunkRepo,
+		fileStorage,
 		embeddingClient,
 		chatService,
 		cfg.ChunkSize,
@@ -88,7 +95,9 @@ func main() {
 	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)
 	protected.Get("/documents/:id/chunks", docHandler.GetPreview)
+	protected.Get("/documents/:id/download", docHandler.Download)
 	protected.Get("/documents/:id", docHandler.GetByID)
+	protected.Post("/documents/:id/reprocess", docHandler.Reprocess)
 	protected.Delete("/documents/:id", docHandler.Delete)
 	protected.Post("/documents/query", middleware.QueryRateLimit(cfg), docHandler.Query)
 
@@ -101,6 +110,7 @@ func main() {
 	)
 	log.Printf("📚 Swagger UI: http://localhost:%d/swagger/index.html", cfg.Port)
 	log.Printf("🔎 OCR: enabled=%t lang=%s min_text=%d", cfg.OCREnabled, cfg.OCRLang, cfg.OCRMinTextLength)
+	log.Printf("📦 Supabase Storage: bucket=%s", cfg.SupabaseStorageBucket)
 	if err := app.Listen(fmt.Sprintf(":%d", cfg.Port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

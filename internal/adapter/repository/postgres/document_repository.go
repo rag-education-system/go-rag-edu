@@ -27,10 +27,10 @@ func (r *documentRepository) Create(ctx context.Context, doc *entity.Document) e
 	doc.UpdatedAt = time.Now()
 
 	query := `
-			INSERT INTO documents (id, "userId", filename, "originalName", "fileSize", "mimeType", status, "totalChunks", visibility, "createdAt", "updatedAt")
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			INSERT INTO documents (id, "userId", filename, "originalName", "fileSize", "mimeType", "storagePath", status, "totalChunks", visibility, "createdAt", "updatedAt")
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		`
-	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.UserID, doc.Filename, doc.OriginalName, doc.FileSize, doc.MimeType, doc.Status, doc.TotalChunks, doc.Visibility, doc.CreatedAt, doc.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.UserID, doc.Filename, doc.OriginalName, doc.FileSize, doc.MimeType, doc.StoragePath, doc.Status, doc.TotalChunks, doc.Visibility, doc.CreatedAt, doc.UpdatedAt)
 	return err
 
 }
@@ -113,6 +113,12 @@ func (r *documentRepository) UpdateStatus(ctx context.Context, id string, status
 func (r *documentRepository) UpdateTotalChunks(ctx context.Context, id string, totalChunks int) error {
 	query := `UPDATE documents SET "totalChunks" = $1, "updatedAt" = NOW() WHERE id = $2`
 	_, err := r.db.ExecContext(ctx, query, totalChunks, id)
+	return err
+}
+
+func (r *documentRepository) UpdateStoragePath(ctx context.Context, id string, storagePath string) error {
+	query := `UPDATE documents SET "storagePath" = $1, "updatedAt" = NOW() WHERE id = $2`
+	_, err := r.db.ExecContext(ctx, query, storagePath, id)
 	return err
 }
 

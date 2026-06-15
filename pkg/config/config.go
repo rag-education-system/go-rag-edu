@@ -49,6 +49,11 @@ type Config struct {
 	OCREnabled       bool
 	OCRLang          string
 	OCRMinTextLength int
+
+	// Supabase Storage
+	SupabaseURL            string
+	SupabaseServiceKey     string
+	SupabaseStorageBucket  string
 }
 
 func Load() *Config {
@@ -96,6 +101,10 @@ func Load() *Config {
 		OCREnabled:       getEnvBool("OCR_ENABLED", true),
 		OCRLang:          getEnv("OCR_LANG", "ind+eng"),
 		OCRMinTextLength: getEnvInt("OCR_MIN_TEXT_LENGTH", 80),
+
+		SupabaseURL:           getEnv("SUPABASE_URL", ""),
+		SupabaseServiceKey:    getEnv("SUPABASE_SERVICE_KEY", ""),
+		SupabaseStorageBucket: getEnv("SUPABASE_STORAGE_BUCKET", "documents"),
 	}
 }
 

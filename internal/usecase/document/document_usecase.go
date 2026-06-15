@@ -25,6 +25,7 @@ type EmbeddingService interface {
 type DocumentUsecase struct {
 	docRepo     repository.DocumentRepository
 	chunkRepo   repository.ChunkRepository
+	fileStorage repository.FileStorage
 	embedder    EmbeddingService
 	chatService ChatService
 	extractor   *ContentExtractor
@@ -36,6 +37,7 @@ type DocumentUsecase struct {
 func NewDocumentUsecase(
 	docRepo repository.DocumentRepository,
 	chunkRepo repository.ChunkRepository,
+	fileStorage repository.FileStorage,
 	embedder EmbeddingService,
 	chatService ChatService,
 	chunkSize, chunkOverlap int,
@@ -48,6 +50,7 @@ func NewDocumentUsecase(
 	return &DocumentUsecase{
 		docRepo:     docRepo,
 		chunkRepo:   chunkRepo,
+		fileStorage: fileStorage,
 		embedder:    embedder,
 		chatService: chatService,
 		extractor:   NewContentExtractor(ocrEnabled, ocrLang, ocrMinTextLength),
@@ -82,6 +85,19 @@ func (uc *DocumentUsecase) UploadDocument(
 	if err := uc.docRepo.Create(ctx, doc); err != nil {
 		return nil, err
 	}
+
+	storagePath := fmt.Sprintf("%s/%s/%s", userID, doc.ID, doc.Filename)
+	if err := uc.fileStorage.Upload(ctx, storagePath, fileData, mimeType); err != nil {
+		_ = uc.docRepo.Delete(ctx, doc.ID)
+		return nil, fmt.Errorf("failed to store file: %w", err)
+	}
+
+	if err := uc.docRepo.UpdateStoragePath(ctx, doc.ID, storagePath); err != nil {
+		_ = uc.fileStorage.Delete(ctx, storagePath)
+		_ = uc.docRepo.Delete(ctx, doc.ID)
+		return nil, fmt.Errorf("failed to update storage path: %w", err)
+	}
+	doc.StoragePath = storagePath
 
 	// process document in background
 	go func() {
@@ -118,7 +134,7 @@ func (uc DocumentUsecase) ProcessDocument(
 		return fmt.Errorf("failed to extract content: %w", err)
 	}
 
-	text := strings.TrimSpace(extraction.Text)
+	text := strings.TrimSpace(CleanReadableContent(extraction.Text))
 	if len(text) == 0 {
 		return fmt.Errorf("no text extracted from document")
 	}
@@ -251,8 +267,99 @@ func (uc *DocumentUsecase) DeleteDocument(
 		return err
 	}
 
+	if doc.StoragePath != "" {
+		if err := uc.fileStorage.Delete(ctx, doc.StoragePath); err != nil {
+			return fmt.Errorf("failed to delete file from storage: %w", err)
+		}
+	}
+
 	return uc.docRepo.Delete(ctx, documentID)
 
+}
+
+func (uc *DocumentUsecase) DownloadDocument(
+	ctx context.Context,
+	documentID string,
+	userID string,
+) (*entity.Document, []byte, error) {
+	doc, err := uc.docRepo.FindByID(ctx, documentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if doc == nil {
+		return nil, nil, fmt.Errorf("document not found")
+	}
+
+	if doc.UserID != userID && doc.Visibility != entity.VisibilityPublic {
+		return nil, nil, fmt.Errorf("document not found")
+	}
+
+	if doc.StoragePath == "" {
+		return nil, nil, fmt.Errorf("file not available")
+	}
+
+	data, err := uc.fileStorage.Download(ctx, doc.StoragePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to download file: %w", err)
+	}
+
+	return doc, data, nil
+}
+
+func (uc *DocumentUsecase) ReprocessDocument(
+	ctx context.Context,
+	documentID string,
+	userID string,
+) (*entity.Document, error) {
+	doc, err := uc.docRepo.FindByIDAndUserID(ctx, documentID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found")
+	}
+	if doc.StoragePath == "" {
+		return nil, fmt.Errorf("file not available")
+	}
+	if doc.Status == entity.StatusProcessing {
+		return nil, fmt.Errorf("document is still processing")
+	}
+
+	fileData, err := uc.fileStorage.Download(ctx, doc.StoragePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file: %w", err)
+	}
+
+	if err := uc.chunkRepo.DeleteByDocumentID(ctx, documentID); err != nil {
+		return nil, fmt.Errorf("failed to delete existing chunks: %w", err)
+	}
+
+	if err := uc.docRepo.UpdateTotalChunks(ctx, documentID, 0); err != nil {
+		return nil, err
+	}
+
+	if err := uc.docRepo.UpdateStatus(ctx, documentID, entity.StatusProcessing); err != nil {
+		return nil, err
+	}
+
+	doc.Status = entity.StatusProcessing
+	doc.TotalChunks = 0
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic in document reprocess for doc %s: %v", documentID, r)
+				uc.docRepo.UpdateStatus(context.Background(), documentID, entity.StatusFailed)
+			}
+		}()
+
+		if err := uc.ProcessDocument(context.Background(), documentID, fileData, doc.MimeType); err != nil {
+			log.Printf("Error reprocessing document %s: %v", documentID, err)
+			uc.docRepo.UpdateStatus(context.Background(), documentID, entity.StatusFailed)
+		}
+	}()
+
+	return doc, nil
 }
 
 // query document
@@ -289,17 +396,12 @@ func (uc *DocumentUsecase) QueryDocuments(
 		return "Maaf, saya tidak menemukan informasi yang relevan dalam dokumen", nil, nil
 	}
 
-	// 3. build context from chunks
-	var contextBuilder strings.Builder
-	for i, chunk := range chunks {
-		contextBuilder.WriteString(fmt.Sprintf("[Dokumen %d - Similarity: %.2f]\n%s\n\n", i+1, chunk.Similarity, chunk.Content))
-	}
+	docContext, displaySources := composeDocContext(query, chunks)
 
-	// 4, generate answer using LLM
-	answer, err := uc.chatService.GenerateAnswer(ctx, query, contextBuilder.String(), history)
+	answer, err := uc.chatService.GenerateAnswer(ctx, query, docContext, history)
 	if err != nil {
-		return "", chunks, fmt.Errorf("failed to generate answer: %w", err)
+		return "", displaySources, fmt.Errorf("failed to generate answer: %w", err)
 	}
 
-	return answer, chunks, nil
+	return answer, displaySources, nil
 }

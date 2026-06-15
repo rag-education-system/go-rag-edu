@@ -21,6 +21,7 @@ type Document struct {
 	OriginalName string             `db:"originalName" json:"originalName"`
 	FileSize     int64              `db:"fileSize" json:"fileSize"`
 	MimeType     string             `db:"mimeType" json:"mimeType"`
+	StoragePath  string             `db:"storagePath" json:"storagePath,omitempty"`
 	Status       DocumentStatus     `db:"status" json:"status"`
 	TotalChunks  int                `db:"totalChunks" json:"totalChunks"`
 	Visibility   DocumentVisibility `db:"visibility" json:"visibility"`

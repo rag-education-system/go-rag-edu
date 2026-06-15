@@ -52,15 +52,18 @@ type QueryDocumentResponse struct {
 }
 
 type ChunkSource struct {
-	DocumentID string  `json:"documentId"`
-	Content    string  `json:"content"`
-	Similarity float64 `json:"similarity"`
-	ChunkIndex int     `json:"chunkIndex"`
+	DocumentID    string  `json:"documentId"`
+	Content       string  `json:"content"`
+	Similarity    float64 `json:"similarity"`
+	ChunkIndex    int     `json:"chunkIndex"`
+	PageNumber    int     `json:"pageNumber,omitempty"`
+	LowConfidence bool    `json:"lowConfidence,omitempty"`
 }
 
 type DocumentChunkInfo struct {
 	ChunkIndex int    `json:"chunkIndex"`
 	Content    string `json:"content"`
+	PageNumber int    `json:"pageNumber,omitempty"`
 }
 
 type DocumentPreviewResponse struct {

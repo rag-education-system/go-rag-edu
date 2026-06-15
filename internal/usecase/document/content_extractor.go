@@ -68,16 +68,24 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		return ExtractionResult{}, fmt.Errorf("failed to extract PDF text: %w", err)
 	}
 	plainText = strings.TrimSpace(plainText)
+	plainGarbled := isGarbledText(plainText)
+	needsOCR := len(plainText) < ce.minTextLength || plainGarbled
 
-	if len(plainText) >= ce.minTextLength {
-		return ExtractionResult{Text: plainText, Source: "text"}, nil
+	if !needsOCR {
+		return ExtractionResult{
+			Text:   CleanReadableContent(plainText),
+			Source: "text",
+		}, nil
 	}
 
 	if !ce.ocrEnabled {
 		if plainText == "" {
 			return ExtractionResult{}, fmt.Errorf("no text extracted from document")
 		}
-		return ExtractionResult{Text: plainText, Source: "text"}, nil
+		return ExtractionResult{
+			Text:   CleanReadableContent(plainText),
+			Source: "text",
+		}, nil
 	}
 
 	ocrText, ocrErr := ce.ocr.ExtractFromPDF(data)
@@ -85,27 +93,30 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 
 	if ocrErr != nil {
 		if plainText != "" {
-			return ExtractionResult{Text: plainText, Source: "text"}, nil
+			return ExtractionResult{
+				Text:   CleanReadableContent(plainText),
+				Source: "text",
+			}, nil
 		}
 		return ExtractionResult{}, fmt.Errorf("OCR fallback failed: %w", ocrErr)
 	}
 
+	source := "ocr"
+	combined := ocrText
 	if plainText != "" && ocrText != "" {
-		return ExtractionResult{
-			Text:   plainText + "\n\n" + ocrText,
-			Source: "mixed",
-		}, nil
+		source = "mixed"
+		combined = pickBetterExtractedText(plainText, ocrText)
+	} else if plainText != "" {
+		source = "text"
+		combined = plainText
 	}
 
-	if ocrText != "" {
-		return ExtractionResult{Text: ocrText, Source: "ocr"}, nil
+	combined = CleanReadableContent(combined)
+	if combined == "" {
+		return ExtractionResult{}, fmt.Errorf("no text extracted from document")
 	}
 
-	if plainText != "" {
-		return ExtractionResult{Text: plainText, Source: "text"}, nil
-	}
-
-	return ExtractionResult{}, fmt.Errorf("no text extracted from document")
+	return ExtractionResult{Text: combined, Source: source}, nil
 }
 
 func (ce *ContentExtractor) extractImage(data []byte) (ExtractionResult, error) {

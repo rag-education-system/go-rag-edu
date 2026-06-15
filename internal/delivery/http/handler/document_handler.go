@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"rag-api/internal/delivery/http/dto"
 	"rag-api/internal/domain/entity"
@@ -9,6 +11,19 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 )
+
+func parseChunkPageNumber(metadata []byte) int {
+	if len(metadata) == 0 {
+		return 0
+	}
+
+	var meta entity.ChunkMetadata
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		return 0
+	}
+
+	return meta.PageNumber
+}
 
 type DocumentHandler struct {
 	docUsecase *document.DocumentUsecase
@@ -169,6 +184,39 @@ func (h *DocumentHandler) GetByID(c *fiber.Ctx) error {
 	})
 }
 
+// Download godoc
+// @Summary      Download document file
+// @Description  Download the original uploaded file from storage
+// @Tags         Documents
+// @Produce      application/octet-stream
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Document ID"
+// @Success      200  {file}  binary
+// @Failure      404  {object}  dto.ErrorResponse
+// @Failure      500  {object}  dto.ErrorResponse
+// @Router       /api/documents/{id}/download [get]
+func (h *DocumentHandler) Download(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	documentID := c.Params("id")
+
+	doc, data, err := h.docUsecase.DownloadDocument(c.Context(), documentID, userID)
+	if err != nil {
+		if err.Error() == "document not found" || err.Error() == "file not available" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	c.Set("Content-Type", doc.MimeType)
+
+	disposition := "attachment"
+	if c.Query("inline") == "1" || c.Query("inline") == "true" {
+		disposition = "inline"
+	}
+	c.Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, doc.OriginalName))
+	return c.Send(data)
+}
+
 // GetPreview godoc
 // @Summary      Get document preview with chunks
 // @Description  Get document metadata and text chunks for preview
@@ -197,6 +245,7 @@ func (h *DocumentHandler) GetPreview(c *fiber.Ctx) error {
 		chunkInfos = append(chunkInfos, dto.DocumentChunkInfo{
 			ChunkIndex: chunk.ChunkIndex,
 			Content:    chunk.Content,
+			PageNumber: parseChunkPageNumber(chunk.Metadata),
 		})
 	}
 
@@ -213,6 +262,41 @@ func (h *DocumentHandler) GetPreview(c *fiber.Ctx) error {
 			CreatedAt:    doc.CreatedAt,
 		},
 		Chunks: chunkInfos,
+	})
+}
+
+// Reprocess godoc
+// @Summary      Reprocess a document
+// @Description  Re-extract text and rebuild chunks/embeddings for an existing document
+// @Tags         Documents
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Document ID"
+// @Success      200  {object}  dto.UploadDocumentResponse
+// @Failure      400  {object}  dto.ErrorResponse
+// @Failure      500  {object}  dto.ErrorResponse
+// @Router       /api/documents/{id}/reprocess [post]
+func (h *DocumentHandler) Reprocess(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	documentID := c.Params("id")
+
+	doc, err := h.docUsecase.ReprocessDocument(c.Context(), documentID, userID)
+	if err != nil {
+		status := fiber.StatusInternalServerError
+		if err.Error() == "document not found" || err.Error() == "file not available" {
+			status = fiber.StatusNotFound
+		}
+		if err.Error() == "document is still processing" {
+			status = fiber.StatusBadRequest
+		}
+		return c.Status(status).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(dto.UploadDocumentResponse{
+		ID:       doc.ID,
+		Filename: doc.Filename,
+		Status:   string(doc.Status),
+		Message:  "Document reprocessing started",
 	})
 }
 
@@ -264,10 +348,12 @@ func (h *DocumentHandler) Query(c *fiber.Ctx) error {
 	var sources []dto.ChunkSource
 	for _, chunk := range chunks {
 		sources = append(sources, dto.ChunkSource{
-			DocumentID: chunk.DocumentID,
-			Content:    chunk.Content,
-			Similarity: chunk.Similarity,
-			ChunkIndex: chunk.ChunkIndex,
+			DocumentID:    chunk.DocumentID,
+			Content:       chunk.Content,
+			Similarity:    chunk.Similarity,
+			ChunkIndex:    chunk.ChunkIndex,
+			PageNumber:    parseChunkPageNumber(chunk.Metadata),
+			LowConfidence: document.IsLowConfidenceSource(chunk.Similarity, chunk.Content),
 		})
 	}
 
