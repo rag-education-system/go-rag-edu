@@ -20,6 +20,8 @@ const (
 var googleDocsPattern = regexp.MustCompile(`(?i)\b(google\s+docs|gdocs)\b`)
 var docsOnlyPattern = regexp.MustCompile(`(?i)\bdocs\b`)
 var wordPattern = regexp.MustCompile(`(?i)\b(microsoft\s+word|ms\s+word|\bword\b)`)
+var prodiFooterPattern = regexp.MustCompile(`(?i)pendidikan teknik informatika dan komputer\s+\d+\s*$`)
+var programStudyQueryPattern = regexp.MustCompile(`(?i)\b(prodi|jurusan|program studi|keunggulan|kuliah)\b`)
 
 func garbledRatio(text string) float64 {
 	words := strings.Fields(text)
@@ -122,7 +124,7 @@ func BuildRAGContextWithQuery(query string, chunks []entity.SimilarChunk) (strin
 
 	scored := make([]scoredChunk, 0, len(chunks))
 	for _, chunk := range chunks {
-		score := scoreChunkRelevance(chunk, queryKeywords)
+		score := scoreChunkRelevanceWithQuery(query, chunk, queryKeywords)
 		scored = append(scored, scoredChunk{chunk: chunk, score: score})
 	}
 
@@ -288,6 +290,35 @@ func isExerciseContent(content string) bool {
 	return false
 }
 
+func isProdiFooterBoilerplate(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if len(trimmed) > 250 {
+		return false
+	}
+	return prodiFooterPattern.MatchString(trimmed)
+}
+
+func isProgramStudyQuery(query string) bool {
+	return programStudyQueryPattern.MatchString(query)
+}
+
+func hasProgramAdvantageContent(content string) bool {
+	contentLower := strings.ToLower(content)
+	if !strings.Contains(contentLower, "keunggulan") {
+		return false
+	}
+	programHints := []string{
+		"ptik", "pendidikan teknik informatika", "program studi",
+		"universitas", "prodi", "jurusan", "spmb",
+	}
+	for _, hint := range programHints {
+		if strings.Contains(contentLower, hint) {
+			return true
+		}
+	}
+	return false
+}
+
 func scoreChunkRelevance(chunk entity.SimilarChunk, queryKeywords []string) float64 {
 	score := chunk.Similarity
 
@@ -303,6 +334,10 @@ func scoreChunkRelevance(chunk entity.SimilarChunk, queryKeywords []string) floa
 		score -= 0.05
 	}
 
+	if isProdiFooterBoilerplate(chunk.Content) {
+		score -= 0.20
+	}
+
 	if isGarbledText(chunk.Content) {
 		score -= 0.15
 	}
@@ -310,6 +345,16 @@ func scoreChunkRelevance(chunk entity.SimilarChunk, queryKeywords []string) floa
 	garbledRat := garbledRatio(chunk.Content)
 	if garbledRat > 0.2 {
 		score -= garbledRat * 0.2
+	}
+
+	return score
+}
+
+func scoreChunkRelevanceWithQuery(query string, chunk entity.SimilarChunk, queryKeywords []string) float64 {
+	score := scoreChunkRelevance(chunk, queryKeywords)
+
+	if isProgramStudyQuery(query) && hasProgramAdvantageContent(chunk.Content) {
+		score += 0.15
 	}
 
 	return score

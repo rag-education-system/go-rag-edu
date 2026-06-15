@@ -58,15 +58,19 @@ func (c *Chunker) ChunkText(text string) []string {
 			chunks = append(chunks, chunk)
 		}
 
-		newStart := c.findOverlapStart(text, end)
-		if newStart <= start {
-			newStart = start + 1
-		}
-		start = newStart
-
-		if start >= len(text) {
+		if end >= len(text) {
 			break
 		}
+
+		newStart := c.findOverlapStart(text, end)
+		minAdvance := c.chunkSize - c.chunkOverlap
+		if minAdvance < 1 {
+			minAdvance = 1
+		}
+		if newStart <= start {
+			newStart = start + minAdvance
+		}
+		start = newStart
 	}
 
 	return chunks

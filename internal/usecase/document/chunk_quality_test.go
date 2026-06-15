@@ -67,6 +67,44 @@ func TestBuildRAGContext_filtersLowQualitySources(t *testing.T) {
 	}
 }
 
+func TestScoreChunkRelevance_prefersPosterOverModuleFooter(t *testing.T) {
+	query := "apa saja keunggulan dari prodi ptik"
+	keywords := extractQueryKeywords(query)
+
+	poster := entity.SimilarChunk{
+		DocumentChunk: entity.DocumentChunk{
+			Content: "Pendidikan Teknik Informatika & Komputer Universitas Bung Hatta Keunggulan Fasilitas Labor multimedia, komputer, jaringan, dan mikro-teaching.",
+		},
+		Similarity: 0.62,
+	}
+	modulFooter := entity.SimilarChunk{
+		DocumentChunk: entity.DocumentChunk{
+			Content: "Dengan microsoft word dapat memudahkan kerja manusia dalam melakukan pengetikan surat maupun dokumen lainnya. Pendidikan Teknik Informatika dan Komputer 1",
+		},
+		Similarity: 0.70,
+	}
+
+	posterScore := scoreChunkRelevanceWithQuery(query, poster, keywords)
+	modulScore := scoreChunkRelevanceWithQuery(query, modulFooter, keywords)
+	if posterScore <= modulScore {
+		t.Fatalf("posterScore=%v modulScore=%v, expected poster chunk to outrank module footer", posterScore, modulScore)
+	}
+}
+
+func TestExpandProgramAcronyms_includesPTIK(t *testing.T) {
+	terms := expandProgramAcronyms([]string{"ptik", "keunggulan"})
+	found := false
+	for _, term := range terms {
+		if term == "pendidikan teknik informatika" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("terms = %v, expected expanded PTIK acronym", terms)
+	}
+}
+
 func TestBuildRAGContext_fallbackSourcesWhenAllLowQuality(t *testing.T) {
 	chunks := []entity.SimilarChunk{
 		{

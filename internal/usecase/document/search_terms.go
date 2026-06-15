@@ -56,5 +56,34 @@ func extractSearchTerms(query string) []string {
 	}
 	flushWord()
 
+	terms = expandProgramAcronyms(terms)
+
 	return terms
+}
+
+var programAcronymExpansions = map[string][]string{
+	"ptik": {"pendidikan teknik informatika", "teknik informatika"},
+	"ptm":  {"pendidikan teknik mesin"},
+	"ptb":  {"pendidikan teknik bangunan"},
+}
+
+func expandProgramAcronyms(terms []string) []string {
+	seen := make(map[string]struct{}, len(terms)*3)
+	out := make([]string, 0, len(terms)*2)
+	add := func(term string) {
+		if _, ok := seen[term]; ok {
+			return
+		}
+		seen[term] = struct{}{}
+		out = append(out, term)
+	}
+	for _, term := range terms {
+		add(term)
+		if expansions, ok := programAcronymExpansions[term]; ok {
+			for _, expansion := range expansions {
+				add(expansion)
+			}
+		}
+	}
+	return out
 }
