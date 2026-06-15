@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 )
 
 func (uc *DocumentUsecase) searchRelevantChunks(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	originalQuery string,
 	searchQuery string,
 	history []ChatMessage,
@@ -31,7 +32,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 			return nil, "", fmt.Errorf("failed to generate query embedding: %w", err)
 		}
 		if len(embeddings) > 0 {
-			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[0], userID, expandedTopK, uc.threshold)
+			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[0], access, expandedTopK, uc.threshold)
 			if err == nil && len(hybridChunks) > 0 {
 				searchType = "hybrid"
 				for _, chunk := range hybridChunks {
@@ -52,7 +53,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 			continue
 		}
 
-		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[0], userID, expandedTopK, uc.threshold)
+		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[0], access, expandedTopK, uc.threshold)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to search similar chunks: %w", err)
 		}
@@ -66,7 +67,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 
 	terms := extractSearchTerms(originalQuery)
 	if len(terms) > 0 {
-		keywordChunks, err := uc.chunkRepo.SearchByKeywords(ctx, terms, userID, expandedTopK)
+		keywordChunks, err := uc.chunkRepo.SearchByKeywords(ctx, terms, access, expandedTopK)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to search chunks by keywords: %w", err)
 		}

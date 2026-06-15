@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/domain/repository"
 
@@ -105,13 +107,18 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 func (r *chunkRepository) SearchSimilarWithAccess(
 	ctx context.Context,
 	embedding pgvector.Vector,
-	userID string,
+	access docaccess.Context,
 	topK int,
 	threshold float64,
 ) ([]entity.SimilarChunk, error) {
 	distanceThreshold := 1 - threshold
+	args := []any{embedding, distanceThreshold}
+	accessCond, accessArgs := docaccess.SQLCondition("d", access, 3)
+	args = append(args, accessArgs...)
+	limitParam := len(args) + 1
+	args = append(args, topK)
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			dc."id",
 			dc."documentId",
@@ -124,15 +131,12 @@ func (r *chunkRepository) SearchSimilarWithAccess(
 		INNER JOIN "documents" d ON dc."documentId" = d."id"
 		WHERE d."status" = 'COMPLETED'
 		AND (dc."embedding" <=> $1) < $2
-		AND (
-			d."visibility" = 'PUBLIC'
-			OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
-		)
+		AND %s
 		ORDER BY dc."embedding" <=> $1
-		LIMIT $4
-	`
+		LIMIT $%d
+	`, accessCond, limitParam)
 
-	return r.scanSimilarChunks(ctx, query, embedding, distanceThreshold, userID, topK)
+	return r.scanSimilarChunks(ctx, query, args...)
 }
 
 // HybridSearchWithAccess combines vector + full-text search with Reciprocal Rank Fusion (pattern from AI-Hukum-BE).
@@ -140,13 +144,21 @@ func (r *chunkRepository) HybridSearchWithAccess(
 	ctx context.Context,
 	query string,
 	embedding pgvector.Vector,
-	userID string,
+	access docaccess.Context,
 	topK int,
 	threshold float64,
 ) ([]entity.SimilarChunk, error) {
 	distanceThreshold := 1 - threshold
+	args := []any{embedding, distanceThreshold}
+	accessCond, accessArgs := docaccess.SQLCondition("d", access, len(args)+1)
+	args = append(args, accessArgs...)
 
-	sql := `
+	textQueryParam := len(args) + 1
+	args = append(args, query)
+	limitParam := len(args) + 1
+	args = append(args, topK)
+
+	sql := fmt.Sprintf(`
 		WITH vector_search AS (
 			SELECT
 				dc."id" AS chunk_id,
@@ -161,26 +173,20 @@ func (r *chunkRepository) HybridSearchWithAccess(
 			INNER JOIN "documents" d ON dc."documentId" = d."id"
 			WHERE (dc."embedding" <=> $1) < $2
 				AND d."status" = 'COMPLETED'
-				AND (
-					d."visibility" = 'PUBLIC'
-					OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
-				)
+				AND %s
 		),
 		text_search AS (
 			SELECT
 				dc."id" AS chunk_id,
-				ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $4)) AS text_score,
+				ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $%d)) AS text_score,
 				ROW_NUMBER() OVER (
-					ORDER BY ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $4)) DESC
+					ORDER BY ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $%d)) DESC
 				) AS text_rank
 			FROM "document_chunks" dc
 			INNER JOIN "documents" d ON dc."documentId" = d."id"
-			WHERE to_tsvector('simple', dc."content") @@ plainto_tsquery('simple', $4)
+			WHERE to_tsvector('simple', dc."content") @@ plainto_tsquery('simple', $%d)
 				AND d."status" = 'COMPLETED'
-				AND (
-					d."visibility" = 'PUBLIC'
-					OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
-				)
+				AND %s
 		),
 		combined AS (
 			SELECT
@@ -204,10 +210,10 @@ func (r *chunkRepository) HybridSearchWithAccess(
 			hybrid_score AS similarity
 		FROM combined
 		ORDER BY hybrid_score DESC
-		LIMIT $5
-	`
+		LIMIT $%d
+	`, accessCond, textQueryParam, textQueryParam, textQueryParam, accessCond, limitParam)
 
-	rows, err := r.db.QueryContext(ctx, sql, embedding, distanceThreshold, userID, query, topK)
+	rows, err := r.db.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -259,20 +265,25 @@ func (r *chunkRepository) scanSimilarChunks(ctx context.Context, query string, a
 	return chunks, nil
 }
 
-func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, userID string, topK int) ([]entity.SimilarChunk, error) {
+func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, access docaccess.Context, topK int) ([]entity.SimilarChunk, error) {
 	if len(terms) == 0 {
 		return nil, nil
 	}
 
 	conditions := make([]string, 0, len(terms))
-	args := make([]any, 0, len(terms)+2)
+	args := make([]any, 0, len(terms)+3)
 	for i, term := range terms {
 		conditions = append(conditions, `dc."content" ILIKE $`+strconv.Itoa(i+1))
 		args = append(args, "%"+term+"%")
 	}
-	args = append(args, userID, topK)
 
-	query := `
+	accessStart := len(args) + 1
+	accessCond, accessArgs := docaccess.SQLCondition("d", access, accessStart)
+	args = append(args, accessArgs...)
+	limitParam := len(args) + 1
+	args = append(args, topK)
+
+	query := fmt.Sprintf(`
 		SELECT
 			dc."id",
 			dc."documentId",
@@ -284,13 +295,10 @@ func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, 
 		FROM "document_chunks" dc
 		INNER JOIN "documents" d ON dc."documentId" = d."id"
 		WHERE d."status" = 'COMPLETED'
-		AND (
-			d."visibility" = 'PUBLIC'
-			OR (d."visibility" = 'PRIVATE' AND d."userId" = $` + strconv.Itoa(len(terms)+1) + `)
-		)
-		AND (` + strings.Join(conditions, " OR ") + `)
+		AND %s
+		AND (`+strings.Join(conditions, " OR ")+`)
 		ORDER BY dc."chunkIndex" ASC
-		LIMIT $` + strconv.Itoa(len(terms)+2)
+		LIMIT $%d`, accessCond, limitParam)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

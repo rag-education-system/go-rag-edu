@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 )
 
@@ -20,7 +21,7 @@ type RAGResult struct {
 // PrepareRAG runs reformulation → hybrid/vector search → context building (AI-Hukum-BE pipeline phase 2).
 func (uc *DocumentUsecase) PrepareRAG(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	query string,
 	history []ChatMessage,
 ) (*RAGResult, error) {
@@ -42,7 +43,7 @@ func (uc *DocumentUsecase) PrepareRAG(
 		}
 	}
 
-	chunks, searchType, err := uc.searchRelevantChunks(ctx, userID, query, searchQuery, history)
+	chunks, searchType, err := uc.searchRelevantChunks(ctx, access, query, searchQuery, history)
 	if err != nil {
 		return nil, err
 	}

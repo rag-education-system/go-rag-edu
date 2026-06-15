@@ -22,7 +22,7 @@ func NewChatHandler(chatUsecase *chat.ChatUsecase, docUsecase *document.Document
 }
 
 func (h *ChatHandler) CreateConversation(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 
 	var req dto.CreateConversationRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -32,7 +32,7 @@ func (h *ChatHandler) CreateConversation(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
-	conv, userMsg, assistantMsg, err := h.chatUsecase.CreateConversation(c.Context(), userID, req.Message)
+	conv, userMsg, assistantMsg, err := h.chatUsecase.CreateConversation(c.Context(), access, req.Message)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -45,7 +45,7 @@ func (h *ChatHandler) CreateConversation(c *fiber.Ctx) error {
 }
 
 func (h *ChatHandler) SendMessage(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	conversationID := c.Params("id")
 
 	var req dto.SendMessageRequest
@@ -56,7 +56,7 @@ func (h *ChatHandler) SendMessage(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
-	userMsg, assistantMsg, err := h.chatUsecase.SendMessage(c.Context(), conversationID, userID, req.Message)
+	userMsg, assistantMsg, err := h.chatUsecase.SendMessage(c.Context(), conversationID, access, req.Message)
 	if err != nil {
 		if err.Error() == "conversation not found" {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
@@ -152,7 +152,7 @@ func (h *ChatHandler) DeleteConversation(c *fiber.Ctx) error {
 
 // StreamChat streams RAG chat response via SSE (pattern from AI-Hukum-BE).
 func (h *ChatHandler) StreamChat(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 
 	var req dto.StreamChatRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -162,7 +162,7 @@ func (h *ChatHandler) StreamChat(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
-	streamChan, err := h.chatUsecase.ChatStream(c.Context(), userID, req.ConversationID, req.Message)
+	streamChan, err := h.chatUsecase.ChatStream(c.Context(), access, req.ConversationID, req.Message)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

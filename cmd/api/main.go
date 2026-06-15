@@ -109,13 +109,6 @@ func main() {
 	protected := api.Group("", middleware.JWTAuth(cfg.JWTSecret))
 	protected.Get("/auth/me", authHandler.Me)
 
-	admin := protected.Group("", middleware.RequireAdmin(), middleware.AdminRateLimit(cfg))
-	admin.Post("/users", userHandler.CreateUser)
-	admin.Get("/users", userHandler.ListUsers)
-	admin.Put("/users/:id", userHandler.UpdateUser)
-	admin.Post("/users/import", userHandler.BulkImportUsers)
-	admin.Get("/users/import/template", userHandler.DownloadImportTemplate)
-
 	protected.Post("/documents/upload", middleware.UploadRateLimit(cfg), docHandler.Upload)
 	protected.Get("/documents", docHandler.List)
 	protected.Get("/documents/:id/chunks", docHandler.GetPreview)
@@ -131,6 +124,13 @@ func main() {
 	protected.Post("/chat/conversations/:id/messages", middleware.QueryRateLimit(cfg), chatHandler.SendMessage)
 	protected.Post("/chat/stream", middleware.QueryRateLimit(cfg), chatHandler.StreamChat)
 	protected.Delete("/chat/conversations/:id", chatHandler.DeleteConversation)
+
+	admin := api.Group("", middleware.JWTAuth(cfg.JWTSecret), middleware.RequireAdmin(), middleware.AdminRateLimit(cfg))
+	admin.Post("/users", userHandler.CreateUser)
+	admin.Get("/users", userHandler.ListUsers)
+	admin.Put("/users/:id", userHandler.UpdateUser)
+	admin.Post("/users/import", userHandler.BulkImportUsers)
+	admin.Get("/users/import/template", userHandler.DownloadImportTemplate)
 
 	log.Printf("🚀 Server starting on port %d", cfg.Port)
 	log.Printf("🧠 RAG: hybrid=%t reformulation=%t threshold=%.2f topK=%d",

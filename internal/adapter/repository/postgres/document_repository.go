@@ -3,8 +3,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/domain/repository"
 
@@ -63,39 +65,66 @@ func (r *documentRepository) FindByIDAndUserID(ctx context.Context, id, userID s
 	return &doc, nil
 }
 
+func (r *documentRepository) FindByIDWithAccess(ctx context.Context, id string, access docaccess.Context) (*entity.Document, error) {
+	accessCond, accessArgs := docaccess.SQLCondition("d", access, 2)
+	query := fmt.Sprintf(`SELECT d.* FROM documents d WHERE d.id = $1 AND %s`, accessCond)
+
+	args := append([]any{id}, accessArgs...)
+	var doc entity.Document
+	err := r.db.GetContext(ctx, &doc, query, args...)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
 // list document
 func (r *documentRepository) List(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	page, limit int,
 	status *entity.DocumentStatus,
 ) ([]entity.Document, int, error) {
 	offset := (page - 1) * limit
 
-	var docs []entity.Document
-	var total int
+	accessCond, accessArgs := docaccess.SQLCondition("d", access, 1)
+	whereParts := []string{accessCond}
+	args := append([]any{}, accessArgs...)
+	argIdx := len(args) + 1
 
 	if status != nil {
-		query := `SELECT * FROM documents WHERE "userId" = $1 AND status = $2 ORDER BY "createdAt" DESC LIMIT $3 OFFSET $4`
-		if err := r.db.SelectContext(ctx, &docs, query, userID, *status, limit, offset); err != nil {
-			return nil, 0, err
-		}
-
-		countQuery := `SELECT COUNT(*) FROM documents WHERE "userId" = $1 AND status = $2`
-		if err := r.db.GetContext(ctx, &total, countQuery, userID, *status); err != nil {
-			return nil, 0, err
-		}
-
-		return docs, total, nil
+		whereParts = append(whereParts, fmt.Sprintf(`d.status = $%d`, argIdx))
+		args = append(args, *status)
+		argIdx++
 	}
 
-	query := `SELECT * FROM documents WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT $2 OFFSET $3`
-	if err := r.db.SelectContext(ctx, &docs, query, userID, limit, offset); err != nil {
+	whereClause := ""
+	for i, part := range whereParts {
+		if i > 0 {
+			whereClause += " AND "
+		}
+		whereClause += part
+	}
+
+	listQuery := fmt.Sprintf(
+		`SELECT d.* FROM documents d WHERE %s ORDER BY d."createdAt" DESC LIMIT $%d OFFSET $%d`,
+		whereClause,
+		argIdx,
+		argIdx+1,
+	)
+	listArgs := append(append([]any{}, args...), limit, offset)
+
+	var docs []entity.Document
+	if err := r.db.SelectContext(ctx, &docs, listQuery, listArgs...); err != nil {
 		return nil, 0, err
 	}
 
-	countQuery := `SELECT COUNT(*) FROM documents WHERE "userId" = $1`
-	if err := r.db.GetContext(ctx, &total, countQuery, userID); err != nil {
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM documents d WHERE %s`, whereClause)
+	var total int
+	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
 		return nil, 0, err
 	}
 

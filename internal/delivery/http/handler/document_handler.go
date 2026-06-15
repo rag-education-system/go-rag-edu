@@ -48,6 +48,7 @@ func NewDocumentHandler(docUsecase *document.DocumentUsecase) *DocumentHandler {
 // @Router       /api/documents/upload [post]
 func (h *DocumentHandler) Upload(c *fiber.Ctx) error {
 	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 
 	// get file from form
 	file, err := c.FormFile("file")
@@ -55,11 +56,7 @@ func (h *DocumentHandler) Upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
 	}
 
-	// get visibility from form
-	visibility := entity.VisibilityPrivate
-	if c.FormValue("visibility") == "PUBLIC" {
-		visibility = entity.VisibilityPublic
-	}
+	visibility := parseUploadVisibility(c, access.Role)
 
 	// read file data
 	fileData, err := file.Open()
@@ -107,13 +104,13 @@ func (h *DocumentHandler) Upload(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents [get]
 func (h *DocumentHandler) List(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "10"))
 	statusFilter := parseDocumentStatusFilter(c.Query("status"))
 
-	docs, total, err := h.docUsecase.ListDocuments(c.Context(), userID, page, limit, statusFilter)
+	docs, total, err := h.docUsecase.ListDocuments(c.Context(), access, page, limit, statusFilter)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -160,10 +157,10 @@ func (h *DocumentHandler) List(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents/{id} [get]
 func (h *DocumentHandler) GetByID(c *fiber.Ctx) error {
-	userId, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	documentID := c.Params("id")
 
-	doc, err := h.docUsecase.GetDocumentByID(c.Context(), documentID, userId)
+	doc, err := h.docUsecase.GetDocumentByID(c.Context(), documentID, access)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -196,10 +193,10 @@ func (h *DocumentHandler) GetByID(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents/{id}/download [get]
 func (h *DocumentHandler) Download(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	documentID := c.Params("id")
 
-	doc, data, err := h.docUsecase.DownloadDocument(c.Context(), documentID, userID)
+	doc, data, err := h.docUsecase.DownloadDocument(c.Context(), documentID, access)
 	if err != nil {
 		if err.Error() == "document not found" || err.Error() == "file not available" {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
@@ -229,10 +226,10 @@ func (h *DocumentHandler) Download(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents/{id}/chunks [get]
 func (h *DocumentHandler) GetPreview(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	documentID := c.Params("id")
 
-	doc, chunks, err := h.docUsecase.GetDocumentPreview(c.Context(), documentID, userID)
+	doc, chunks, err := h.docUsecase.GetDocumentPreview(c.Context(), documentID, access)
 	if err != nil {
 		if err.Error() == "document not found" {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
@@ -334,14 +331,14 @@ func (h *DocumentHandler) Delete(c *fiber.Ctx) error {
 // @Failure      500      {object}  dto.ErrorResponse
 // @Router       /api/documents/query [post]
 func (h *DocumentHandler) Query(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 
 	var req dto.QueryDocumentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), userID, req.Query, toChatHistory(req.History))
+	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), access, req.Query, toChatHistory(req.History))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

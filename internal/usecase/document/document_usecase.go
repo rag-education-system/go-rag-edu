@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/domain/repository"
 
@@ -247,11 +248,11 @@ func (uc DocumentUsecase) ProcessDocument(
 // list document
 func (uc *DocumentUsecase) ListDocuments(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	page, limit int,
 	status *entity.DocumentStatus,
 ) ([]entity.Document, int, error) {
-	return uc.docRepo.List(ctx, userID, page, limit, status)
+	return uc.docRepo.List(ctx, access, page, limit, status)
 }
 
 func (uc *DocumentUsecase) GetDocumentOriginalName(ctx context.Context, documentID string) string {
@@ -266,9 +267,9 @@ func (uc *DocumentUsecase) GetDocumentOriginalName(ctx context.Context, document
 func (uc *DocumentUsecase) GetDocumentByID(
 	ctx context.Context,
 	documentID string,
-	userID string,
+	access docaccess.Context,
 ) (*entity.Document, error) {
-	doc, err := uc.docRepo.FindByIDAndUserID(ctx, documentID, userID)
+	doc, err := uc.docRepo.FindByIDWithAccess(ctx, documentID, access)
 	if err != nil {
 		return nil, err
 	}
@@ -283,17 +284,13 @@ func (uc *DocumentUsecase) GetDocumentByID(
 func (uc *DocumentUsecase) GetDocumentPreview(
 	ctx context.Context,
 	documentID string,
-	userID string,
+	access docaccess.Context,
 ) (*entity.Document, []entity.DocumentChunk, error) {
-	doc, err := uc.docRepo.FindByID(ctx, documentID)
+	doc, err := uc.docRepo.FindByIDWithAccess(ctx, documentID, access)
 	if err != nil {
 		return nil, nil, err
 	}
 	if doc == nil {
-		return nil, nil, fmt.Errorf("document not found")
-	}
-
-	if doc.UserID != userID && doc.Visibility != entity.VisibilityPublic {
 		return nil, nil, fmt.Errorf("document not found")
 	}
 
@@ -337,17 +334,13 @@ func (uc *DocumentUsecase) DeleteDocument(
 func (uc *DocumentUsecase) DownloadDocument(
 	ctx context.Context,
 	documentID string,
-	userID string,
+	access docaccess.Context,
 ) (*entity.Document, []byte, error) {
-	doc, err := uc.docRepo.FindByID(ctx, documentID)
+	doc, err := uc.docRepo.FindByIDWithAccess(ctx, documentID, access)
 	if err != nil {
 		return nil, nil, err
 	}
 	if doc == nil {
-		return nil, nil, fmt.Errorf("document not found")
-	}
-
-	if doc.UserID != userID && doc.Visibility != entity.VisibilityPublic {
 		return nil, nil, fmt.Errorf("document not found")
 	}
 
@@ -422,11 +415,11 @@ func (uc *DocumentUsecase) ReprocessDocument(
 // query document
 func (uc *DocumentUsecase) QueryDocuments(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	query string,
 	history []ChatMessage,
 ) (string, []entity.SimilarChunk, error) {
-	rag, err := uc.PrepareRAG(ctx, userID, query, history)
+	rag, err := uc.PrepareRAG(ctx, access, query, history)
 	if err != nil {
 		return "", nil, err
 	}

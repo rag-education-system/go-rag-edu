@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"rag-api/internal/delivery/http/dto"
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/usecase/document"
 )
@@ -14,11 +15,12 @@ import (
 // ChatStream runs the 4-phase RAG pipeline with SSE streaming (pattern from AI-Hukum-BE).
 func (uc *ChatUsecase) ChatStream(
 	ctx context.Context,
-	userID string,
+	access docaccess.Context,
 	conversationID string,
 	message string,
 ) (<-chan dto.StreamChunk, error) {
 	ch := make(chan dto.StreamChunk, 32)
+	userID := access.UserID
 
 	go func() {
 		defer close(ch)
@@ -62,7 +64,7 @@ func (uc *ChatUsecase) ChatStream(
 		}
 
 		chatHistory := toChatHistory(history)
-		rag, err := uc.docUC.PrepareRAG(ctx, userID, message, chatHistory)
+		rag, err := uc.docUC.PrepareRAG(ctx, access, message, chatHistory)
 		if err != nil {
 			ch <- dto.StreamChunk{Type: "error", Error: err.Error()}
 			return

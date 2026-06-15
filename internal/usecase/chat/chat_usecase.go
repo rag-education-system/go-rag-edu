@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"strings"
 
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/domain/repository"
 	"rag-api/internal/usecase/document"
 )
 
 type DocumentQuerier interface {
-	QueryDocuments(ctx context.Context, userID, query string, history []document.ChatMessage) (string, []entity.SimilarChunk, error)
-	PrepareRAG(ctx context.Context, userID, query string, history []document.ChatMessage) (*document.RAGResult, error)
+	QueryDocuments(ctx context.Context, access docaccess.Context, query string, history []document.ChatMessage) (string, []entity.SimilarChunk, error)
+	PrepareRAG(ctx context.Context, access docaccess.Context, query string, history []document.ChatMessage) (*document.RAGResult, error)
 	GenerateAnswerStream(ctx context.Context, query, docContext string, history []document.ChatMessage) (<-chan string, <-chan error)
 	GetDocumentOriginalName(ctx context.Context, documentID string) string
 }
@@ -41,11 +42,12 @@ func NewChatUsecase(
 
 func (uc *ChatUsecase) CreateConversation(
 	ctx context.Context,
-	userID, message string,
+	access docaccess.Context,
+	message string,
 ) (*entity.Conversation, *entity.Message, *entity.Message, error) {
 	title := generateTitle(message)
 	conv := &entity.Conversation{
-		UserID: userID,
+		UserID: access.UserID,
 		Title:  title,
 	}
 
@@ -53,7 +55,7 @@ func (uc *ChatUsecase) CreateConversation(
 		return nil, nil, nil, err
 	}
 
-	userMsg, assistantMsg, err := uc.processMessage(ctx, conv, message, nil)
+	userMsg, assistantMsg, err := uc.processMessage(ctx, conv, message, nil, access)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -63,9 +65,11 @@ func (uc *ChatUsecase) CreateConversation(
 
 func (uc *ChatUsecase) SendMessage(
 	ctx context.Context,
-	conversationID, userID, message string,
+	conversationID string,
+	access docaccess.Context,
+	message string,
 ) (*entity.Message, *entity.Message, error) {
-	conv, err := uc.convRepo.FindByIDAndUserID(ctx, conversationID, userID)
+	conv, err := uc.convRepo.FindByIDAndUserID(ctx, conversationID, access.UserID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -78,7 +82,7 @@ func (uc *ChatUsecase) SendMessage(
 		return nil, nil, err
 	}
 
-	return uc.processMessage(ctx, conv, message, history)
+	return uc.processMessage(ctx, conv, message, history, access)
 }
 
 func (uc *ChatUsecase) processMessage(
@@ -86,6 +90,7 @@ func (uc *ChatUsecase) processMessage(
 	conv *entity.Conversation,
 	message string,
 	history []entity.Message,
+	access docaccess.Context,
 ) (*entity.Message, *entity.Message, error) {
 	userMsg := &entity.Message{
 		ConversationID: conv.ID,
@@ -97,7 +102,7 @@ func (uc *ChatUsecase) processMessage(
 	}
 
 	chatHistory := toChatHistory(history)
-	answer, chunks, err := uc.docUC.QueryDocuments(ctx, conv.UserID, message, chatHistory)
+	answer, chunks, err := uc.docUC.QueryDocuments(ctx, access, message, chatHistory)
 	if err != nil {
 		return nil, nil, err
 	}
