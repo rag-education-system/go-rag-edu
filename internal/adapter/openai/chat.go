@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"io"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -30,18 +31,27 @@ func (c *ChatClient) GenerateAnswer(
 	docContext string,
 	history []HistoryMessage,
 ) (string, error) {
-	systemPrompt := `Anda adalah asisten AI yang membantu menjawab pertanyaan berdasarkan dokumen yang diberikan.
+	systemPrompt := `Anda adalah asisten AI edukatif yang membantu menjawab pertanyaan. Anda memiliki akses ke dokumen pembelajaran pengguna DAN pengetahuan umum Anda.
 
-Instruksi:
-1. Jawab HANYA berdasarkan konteks dokumen. JANGAN menambah langkah menu, fitur, atau pengetahuan umum di luar konteks.
-2. DILARANG menyebut tab/menu/langkah seperti "Insert", "Sisipkan", "Review", "Equation Editor", atau langkah numbered tutorial kecuali kata/frasa persis itu muncul di konteks dokumen.
-3. Gunakan riwayat percakapan untuk memahami pertanyaan lanjutan (misalnya "jelaskan poin ketiga" atau "apa maksudnya").
-4. Jika user minta "cara" tetapi dokumen hanya berisi instruksi latihan (mis. "Buatlah rumus menggunakan fitur Equation"), jelaskan isi dokumen tersebut dan katakan bahwa langkah detail cara membuka/menggunakan fitur tidak tercantum.
-5. Jika konteks menyebut topik secara sebagian, jelaskan apa yang disebutkan di dokumen dan bagian mana yang tidak tercantum. JANGAN menolak total jika masih ada informasi sebagian.
-6. Jika ada catatan teks rusak atau placeholder "[rumus/simbol tidak terbaca]", jangan mengutip teks rumus yang rusak; cukup jelaskan bahwa contoh rumus tidak terbaca.
-7. Jika ada petunjuk bahwa pengguna menanyakan aplikasi berbeda (misalnya Google Docs vs Microsoft Word), jelaskan perbedaan itu secara eksplisit sebelum menjawab.
-8. JANGAN katakan "tidak menemukan informasi" jika ada data yang sebagian relevan. Jawab dengan data yang ada, lalu jelaskan jika ada bagian yang tidak tercantum.
-9. Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar.`
+## Prioritas Jawaban:
+1. **UTAMAKAN** informasi dari konteks dokumen yang diberikan
+2. **LENGKAPI** dengan pengetahuan umum Anda jika dokumen tidak lengkap atau kurang detail
+3. **BEDAKAN** dengan jelas mana yang dari dokumen dan mana dari pengetahuan umum
+
+## Format Jawaban:
+- Jika menjawab dari dokumen: "Berdasarkan Dokumen X, ..."
+- Jika melengkapi dengan pengetahuan umum: "Sebagai tambahan informasi umum, ..." atau "Untuk melengkapi, secara umum..."
+- Jika dokumen tidak relevan sama sekali: Jawab dengan pengetahuan Anda, tapi sebutkan bahwa dokumen tidak membahas topik tersebut
+
+## Instruksi Detail:
+1. Gunakan riwayat percakapan untuk memahami pertanyaan lanjutan (misalnya "jelaskan poin ketiga" atau "apa maksudnya").
+2. Jika konteks dokumen menyebut topik secara sebagian, jelaskan apa yang ada di dokumen, lalu lengkapi dengan pengetahuan umum jika diperlukan.
+3. Jika ada catatan teks rusak atau placeholder "[rumus/simbol tidak terbaca]", jangan mengutip teks rumus yang rusak; cukup jelaskan bahwa contoh rumus tidak terbaca dan berikan penjelasan umum jika memungkinkan.
+4. Jika ada petunjuk bahwa pengguna menanyakan aplikasi berbeda (misalnya Google Docs vs Microsoft Word), jelaskan perbedaan itu secara eksplisit.
+5. Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca.
+6. Untuk pertanyaan tentang langkah-langkah/tutorial yang tidak ada di dokumen, Anda BOLEH memberikan panduan umum dengan catatan bahwa itu bukan dari dokumen.
+7. Jika informasi berasal dari beberapa dokumen, sebutkan masing-masing sumbernya untuk transparansi.
+8. Untuk pertanyaan faktual/data spesifik (seperti angka, tanggal, nama), prioritaskan data dari dokumen. Jangan mengarang data.`
 
 	messages := []openai.ChatCompletionMessage{
 		{
@@ -76,7 +86,7 @@ Pertanyaan terbaru: %s`, docContext, query)
 		Model:       c.model,
 		Messages:    messages,
 		Temperature: 0.2,
-		MaxTokens:   700,
+		MaxTokens:   1200,
 	})
 
 	if err != nil {
@@ -88,4 +98,84 @@ Pertanyaan terbaru: %s`, docContext, query)
 	}
 
 	return resp.Choices[0].Message.Content, nil
+}
+
+// GenerateAnswerStream streams the answer token-by-token (SSE pattern from AI-Hukum-BE).
+func (c *ChatClient) GenerateAnswerStream(
+	ctx context.Context,
+	query string,
+	docContext string,
+	history []HistoryMessage,
+) (<-chan string, <-chan error) {
+	contentCh := make(chan string, 32)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(contentCh)
+		defer close(errCh)
+
+		systemPrompt := `Anda adalah asisten AI edukatif yang membantu menjawab pertanyaan. Anda memiliki akses ke dokumen pembelajaran pengguna DAN pengetahuan umum Anda.
+
+## Prioritas Jawaban:
+1. **UTAMAKAN** informasi dari konteks dokumen yang diberikan
+2. **LENGKAPI** dengan pengetahuan umum Anda jika dokumen tidak lengkap atau kurang detail
+3. **BEDAKAN** dengan jelas mana yang dari dokumen dan mana dari pengetahuan umum
+
+## Format Jawaban:
+- Jika menjawab dari dokumen: "Berdasarkan Dokumen X, ..."
+- Jika melengkapi dengan pengetahuan umum: "Sebagai tambahan informasi umum, ..."
+- Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca`
+
+		messages := []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+		}
+		for _, item := range history {
+			role := openai.ChatMessageRoleUser
+			if item.Role == "assistant" {
+				role = openai.ChatMessageRoleAssistant
+			}
+			messages = append(messages, openai.ChatCompletionMessage{Role: role, Content: item.Content})
+		}
+
+		userPrompt := fmt.Sprintf(`Konteks dari dokumen:
+%s
+
+Pertanyaan terbaru: %s`, docContext, query)
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: userPrompt,
+		})
+
+		stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+			Model:       c.model,
+			Messages:    messages,
+			Temperature: 0.2,
+			MaxTokens:   1200,
+			Stream:      true,
+		})
+		if err != nil {
+			errCh <- fmt.Errorf("failed to start stream: %w", err)
+			return
+		}
+		defer stream.Close()
+
+		for {
+			response, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				errCh <- err
+				return
+			}
+			if len(response.Choices) > 0 {
+				token := response.Choices[0].Delta.Content
+				if token != "" {
+					contentCh <- token
+				}
+			}
+		}
+	}()
+
+	return contentCh, errCh
 }

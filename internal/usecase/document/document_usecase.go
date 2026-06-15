@@ -16,6 +16,12 @@ import (
 
 type ChatService interface {
 	GenerateAnswer(ctx context.Context, query, docContext string, history []ChatMessage) (string, error)
+	GenerateAnswerStream(ctx context.Context, query, docContext string, history []ChatMessage) (<-chan string, <-chan error)
+}
+
+type QueryReformulator interface {
+	ReformulateQuery(ctx context.Context, query string, history []ChatMessage) (string, error)
+	Enabled() bool
 }
 
 type EmbeddingService interface {
@@ -23,15 +29,17 @@ type EmbeddingService interface {
 }
 
 type DocumentUsecase struct {
-	docRepo     repository.DocumentRepository
-	chunkRepo   repository.ChunkRepository
-	fileStorage repository.FileStorage
-	embedder    EmbeddingService
-	chatService ChatService
-	extractor   *ContentExtractor
-	chunker     *Chunker
-	topK        int
-	threshold   float64
+	docRepo         repository.DocumentRepository
+	chunkRepo       repository.ChunkRepository
+	fileStorage     repository.FileStorage
+	embedder        EmbeddingService
+	chatService     ChatService
+	reformulator    QueryReformulator
+	extractor       *ContentExtractor
+	chunker         *Chunker
+	topK            int
+	threshold       float64
+	useHybridSearch bool
 }
 
 func NewDocumentUsecase(
@@ -40,23 +48,27 @@ func NewDocumentUsecase(
 	fileStorage repository.FileStorage,
 	embedder EmbeddingService,
 	chatService ChatService,
+	reformulator QueryReformulator,
 	chunkSize, chunkOverlap int,
 	topK int,
 	threshold float64,
+	useHybridSearch bool,
 	ocrEnabled bool,
 	ocrLang string,
 	ocrMinTextLength int,
 ) *DocumentUsecase {
 	return &DocumentUsecase{
-		docRepo:     docRepo,
-		chunkRepo:   chunkRepo,
-		fileStorage: fileStorage,
-		embedder:    embedder,
-		chatService: chatService,
-		extractor:   NewContentExtractor(ocrEnabled, ocrLang, ocrMinTextLength),
-		chunker:     NewChunker(chunkSize, chunkOverlap),
-		topK:        topK,
-		threshold:   threshold,
+		docRepo:         docRepo,
+		chunkRepo:       chunkRepo,
+		fileStorage:     fileStorage,
+		embedder:        embedder,
+		chatService:     chatService,
+		reformulator:    reformulator,
+		extractor:       NewContentExtractor(ocrEnabled, ocrLang, ocrMinTextLength),
+		chunker:         NewChunker(chunkSize, chunkOverlap),
+		topK:            topK,
+		threshold:       threshold,
+		useHybridSearch: useHybridSearch,
 	}
 }
 
@@ -134,6 +146,7 @@ func (uc DocumentUsecase) ProcessDocument(
 		return fmt.Errorf("failed to extract content: %w", err)
 	}
 
+	extraction.Text = SanitizeUTF8(extraction.Text)
 	text := strings.TrimSpace(CleanReadableContent(extraction.Text))
 	if len(text) == 0 {
 		return fmt.Errorf("no text extracted from document")
@@ -161,7 +174,25 @@ func (uc DocumentUsecase) ProcessDocument(
 	if len(textChunks) == 0 {
 		return fmt.Errorf("no chunks generated")
 	}
-	log.Printf("Generated %d chunks from document %s", len(textChunks), documentID)
+	log.Printf("Generated %d raw chunks from document %s", len(textChunks), documentID)
+
+	filteredChunks, filteredIndices := FilterChunksForEmbedding(textChunks)
+	if len(filteredChunks) == 0 {
+		return fmt.Errorf("no quality chunks after filtering")
+	}
+
+	filteredPageNumbers := make([]int, len(filteredIndices))
+	for i, idx := range filteredIndices {
+		if idx < len(chunkPageNumbers) {
+			filteredPageNumbers[i] = chunkPageNumbers[idx]
+		} else {
+			filteredPageNumbers[i] = 1
+		}
+	}
+
+	textChunks = filteredChunks
+	chunkPageNumbers = filteredPageNumbers
+	log.Printf("Filtered to %d quality chunks from document %s", len(textChunks), documentID)
 
 	// 3 generate embeddings
 	embeddings, err := uc.embedder.GenerateBatchEmbeddings(ctx, textChunks)
@@ -177,6 +208,8 @@ func (uc DocumentUsecase) ProcessDocument(
 		if i < len(chunkPageNumbers) {
 			pageNumber = chunkPageNumbers[i]
 		}
+
+		content = SanitizeUTF8(content)
 
 		metadata, _ := json.Marshal(entity.ChunkMetadata{
 			Source:     extraction.Source,
@@ -219,6 +252,14 @@ func (uc *DocumentUsecase) ListDocuments(
 	status *entity.DocumentStatus,
 ) ([]entity.Document, int, error) {
 	return uc.docRepo.List(ctx, userID, page, limit, status)
+}
+
+func (uc *DocumentUsecase) GetDocumentOriginalName(ctx context.Context, documentID string) string {
+	doc, err := uc.docRepo.FindByID(ctx, documentID)
+	if err != nil || doc == nil {
+		return ""
+	}
+	return doc.OriginalName
 }
 
 // get document by id
@@ -381,31 +422,40 @@ func (uc *DocumentUsecase) ReprocessDocument(
 // query document
 func (uc *DocumentUsecase) QueryDocuments(
 	ctx context.Context,
+	userID string,
 	query string,
 	history []ChatMessage,
 ) (string, []entity.SimilarChunk, error) {
-	query = strings.TrimSpace(query)
-	history = normalizeHistory(history)
-
-	if isGreeting(query) && len(history) == 0 {
-		return "Halo! Saya siap membantu Anda. Silakan tanyakan apa saja tentang dokumen yang telah Anda upload.", nil, nil
-	}
-
-	chunks, err := uc.searchRelevantChunks(ctx, query, history)
+	rag, err := uc.PrepareRAG(ctx, userID, query, history)
 	if err != nil {
 		return "", nil, err
 	}
 
-	if len(chunks) == 0 {
-		return "Maaf, saya tidak menemukan informasi yang relevan dalam dokumen", nil, nil
+	if rag.Answer != "" {
+		return rag.Answer, nil, nil
 	}
 
-	docContext, displaySources := composeDocContext(query, chunks)
+	if rag.DocContext == "" || len(rag.Chunks) == 0 {
+		answer, err := uc.chatService.GenerateAnswer(ctx, query, "[Tidak ada dokumen relevan yang ditemukan. Jawab berdasarkan pengetahuan umum Anda, tapi sebutkan bahwa jawaban tidak bersumber dari dokumen pengguna.]", history)
+		if err != nil {
+			return "Maaf, saya tidak menemukan informasi yang relevan dalam dokumen dan gagal menghasilkan jawaban.", nil, err
+		}
+		return answer, nil, nil
+	}
 
-	answer, err := uc.chatService.GenerateAnswer(ctx, query, docContext, history)
+	answer, err := uc.chatService.GenerateAnswer(ctx, query, rag.DocContext, history)
 	if err != nil {
-		return "", displaySources, fmt.Errorf("failed to generate answer: %w", err)
+		return "", rag.DisplaySources, fmt.Errorf("failed to generate answer: %w", err)
 	}
 
-	return answer, displaySources, nil
+	return answer, rag.DisplaySources, nil
+}
+
+func (uc *DocumentUsecase) GenerateAnswerStream(
+	ctx context.Context,
+	query string,
+	docContext string,
+	history []ChatMessage,
+) (<-chan string, <-chan error) {
+	return uc.chatService.GenerateAnswerStream(ctx, query, docContext, history)
 }

@@ -334,23 +334,26 @@ func (h *DocumentHandler) Delete(c *fiber.Ctx) error {
 // @Failure      500      {object}  dto.ErrorResponse
 // @Router       /api/documents/query [post]
 func (h *DocumentHandler) Query(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+
 	var req dto.QueryDocumentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), req.Query, toChatHistory(req.History))
+	answer, chunks, err := h.docUsecase.QueryDocuments(c.Context(), userID, req.Query, toChatHistory(req.History))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Convert chunks to sources
 	var sources []dto.ChunkSource
 	for _, chunk := range chunks {
+		documentName := h.docUsecase.GetDocumentOriginalName(c.Context(), chunk.DocumentID)
 		sources = append(sources, dto.ChunkSource{
 			DocumentID:    chunk.DocumentID,
-			Content:       chunk.Content,
+			DocumentName:  documentName,
 			Similarity:    chunk.Similarity,
+			Content:       chunk.Content,
 			ChunkIndex:    chunk.ChunkIndex,
 			PageNumber:    parseChunkPageNumber(chunk.Metadata),
 			LowConfidence: document.IsLowConfidenceSource(chunk.Similarity, chunk.Content),

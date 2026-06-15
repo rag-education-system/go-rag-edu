@@ -70,17 +70,42 @@ func TestBuildRAGContext_filtersLowQualitySources(t *testing.T) {
 func TestBuildRAGContext_fallbackSourcesWhenAllLowQuality(t *testing.T) {
 	chunks := []entity.SimilarChunk{
 		{
-			DocumentChunk: entity.DocumentChunk{Content: "Equation a. D = B A B B A A P P J B J B - = -"},
+			DocumentChunk: entity.DocumentChunk{DocumentID: "doc-1", Content: "Equation a. D = B A B B A A P P J B J B - = -"},
 			Similarity:    0.58,
 		},
 		{
-			DocumentChunk: entity.DocumentChunk{Content: "Equation b. x = Y Z Z Y Y"},
+			DocumentChunk: entity.DocumentChunk{DocumentID: "doc-1", Content: "Equation b. x = Y Z Z Y Y"},
 			Similarity:    0.57,
 		},
 	}
 
 	_, sources := buildRAGContext(chunks)
-	if len(sources) != 2 {
-		t.Fatalf("len(sources) = %d, want fallback top 2 sources", len(sources))
+	if len(sources) != 0 {
+		t.Fatalf("len(sources) = %d, want 0 low-quality sources", len(sources))
+	}
+}
+
+func TestAggregateSourcesByDocument_groupsByDocumentID(t *testing.T) {
+	chunks := []entity.SimilarChunk{
+		{
+			DocumentChunk: entity.DocumentChunk{DocumentID: "doc-1", Content: "Chunk A"},
+			Similarity:    0.72,
+		},
+		{
+			DocumentChunk: entity.DocumentChunk{DocumentID: "doc-1", Content: "Chunk B"},
+			Similarity:    0.81,
+		},
+		{
+			DocumentChunk: entity.DocumentChunk{DocumentID: "doc-2", Content: "Chunk C"},
+			Similarity:    0.76,
+		},
+	}
+
+	aggregated := AggregateSourcesByDocument(chunks)
+	if len(aggregated) != 2 {
+		t.Fatalf("len(aggregated) = %d, want 2 documents", len(aggregated))
+	}
+	if aggregated[0].DocumentID != "doc-1" || aggregated[0].Similarity != 0.81 {
+		t.Fatalf("aggregated[0] = %+v, want doc-1 with similarity 0.81", aggregated[0])
 	}
 }

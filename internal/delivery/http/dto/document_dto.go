@@ -53,11 +53,12 @@ type QueryDocumentResponse struct {
 
 type ChunkSource struct {
 	DocumentID    string  `json:"documentId"`
-	Content       string  `json:"content"`
+	DocumentName  string  `json:"documentName,omitempty"`
 	Similarity    float64 `json:"similarity"`
-	ChunkIndex    int     `json:"chunkIndex"`
-	PageNumber    int     `json:"pageNumber,omitempty"`
 	LowConfidence bool    `json:"lowConfidence,omitempty"`
+	Content       string  `json:"content,omitempty"`
+	ChunkIndex    int     `json:"chunkIndex,omitempty"`
+	PageNumber    int     `json:"pageNumber,omitempty"`
 }
 
 type DocumentChunkInfo struct {

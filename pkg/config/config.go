@@ -25,6 +25,18 @@ type Config struct {
 	ChunkOverlap        int
 	TopKResults         int
 	SimilarityThreshold float64
+	UseHybridSearch     bool
+
+	// query reformulation (AI-Hukum-BE pattern)
+	QueryReformulationEnabled  bool
+	QueryReformulationModel    string
+	QueryReformulationTimeout  time.Duration
+
+	// embedding: OpenAI or Ollama local
+	IsEmbeddingLocal       bool
+	OllamaBaseURL          string
+	OllamaEmbeddingModel   string
+	OllamaEmbeddingDimension int
 
 	// security / anti-abuse
 	BodyLimitMB            int
@@ -79,6 +91,16 @@ func Load() *Config {
 		ChunkOverlap:        getEnvInt("CHUNK_OVERLAP", 200),
 		TopKResults:         getEnvInt("TOP_K_RESULTS", 6),
 		SimilarityThreshold: getEnvFloat("SIMILARITY_THRESHOLD", 0.5),
+		UseHybridSearch:     getEnvBool("USE_HYBRID_SEARCH", true),
+
+		QueryReformulationEnabled: getEnvBool("QUERY_REFORMULATION_ENABLED", true),
+		QueryReformulationModel:   getEnv("QUERY_REFORMULATION_MODEL", "gpt-4o-mini"),
+		QueryReformulationTimeout: getEnvDuration("QUERY_REFORMULATION_TIMEOUT", 10*time.Second),
+
+		IsEmbeddingLocal:         getEnvBool("IS_EMBEDDING_LOCAL", false),
+		OllamaBaseURL:            getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaEmbeddingModel:     getEnv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
+		OllamaEmbeddingDimension: getEnvInt("OLLAMA_EMBEDDING_DIMENSION", 1536),
 
 		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 12),
 		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 10*time.Second),

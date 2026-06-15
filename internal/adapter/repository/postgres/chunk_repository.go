@@ -78,7 +78,7 @@ func (r *chunkRepository) CreateBatch(ctx context.Context, chunks []entity.Docum
 
 }
 
-// SearchSimilar searches for similar chunks using vector similarity
+// SearchSimilar searches for similar chunks using vector similarity (no access control — use SearchSimilarWithAccess for RAG)
 func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.Vector, topK int, threshold float64) ([]entity.SimilarChunk, error) {
 	query := `
 		SELECT 
@@ -97,7 +97,117 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 		LIMIT $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, embedding, threshold, topK)
+	return r.scanSimilarChunks(ctx, query, embedding, threshold, topK)
+}
+
+// SearchSimilarWithAccess performs vector similarity search filtered by document visibility and ownership.
+// Pattern adapted from AI-Hukum-BE SimilaritySearchWithAccess.
+func (r *chunkRepository) SearchSimilarWithAccess(
+	ctx context.Context,
+	embedding pgvector.Vector,
+	userID string,
+	topK int,
+	threshold float64,
+) ([]entity.SimilarChunk, error) {
+	distanceThreshold := 1 - threshold
+
+	query := `
+		SELECT 
+			dc."id",
+			dc."documentId",
+			dc."chunkIndex",
+			dc."content",
+			dc."metadata",
+			dc."createdAt",
+			1 - (dc."embedding" <=> $1) AS similarity
+		FROM "document_chunks" dc
+		INNER JOIN "documents" d ON dc."documentId" = d."id"
+		WHERE d."status" = 'COMPLETED'
+		AND (dc."embedding" <=> $1) < $2
+		AND (
+			d."visibility" = 'PUBLIC'
+			OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
+		)
+		ORDER BY dc."embedding" <=> $1
+		LIMIT $4
+	`
+
+	return r.scanSimilarChunks(ctx, query, embedding, distanceThreshold, userID, topK)
+}
+
+// HybridSearchWithAccess combines vector + full-text search with Reciprocal Rank Fusion (pattern from AI-Hukum-BE).
+func (r *chunkRepository) HybridSearchWithAccess(
+	ctx context.Context,
+	query string,
+	embedding pgvector.Vector,
+	userID string,
+	topK int,
+	threshold float64,
+) ([]entity.SimilarChunk, error) {
+	distanceThreshold := 1 - threshold
+
+	sql := `
+		WITH vector_search AS (
+			SELECT
+				dc."id" AS chunk_id,
+				dc."documentId" AS document_id,
+				dc."content",
+				dc."chunkIndex" AS chunk_index,
+				dc."metadata",
+				dc."createdAt",
+				(dc."embedding" <=> $1) AS vector_score,
+				ROW_NUMBER() OVER (ORDER BY dc."embedding" <=> $1 ASC) AS vector_rank
+			FROM "document_chunks" dc
+			INNER JOIN "documents" d ON dc."documentId" = d."id"
+			WHERE (dc."embedding" <=> $1) < $2
+				AND d."status" = 'COMPLETED'
+				AND (
+					d."visibility" = 'PUBLIC'
+					OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
+				)
+		),
+		text_search AS (
+			SELECT
+				dc."id" AS chunk_id,
+				ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $4)) AS text_score,
+				ROW_NUMBER() OVER (
+					ORDER BY ts_rank(to_tsvector('simple', dc."content"), plainto_tsquery('simple', $4)) DESC
+				) AS text_rank
+			FROM "document_chunks" dc
+			INNER JOIN "documents" d ON dc."documentId" = d."id"
+			WHERE to_tsvector('simple', dc."content") @@ plainto_tsquery('simple', $4)
+				AND d."status" = 'COMPLETED'
+				AND (
+					d."visibility" = 'PUBLIC'
+					OR (d."visibility" = 'PRIVATE' AND d."userId" = $3)
+				)
+		),
+		combined AS (
+			SELECT
+				v.chunk_id,
+				v.document_id,
+				v."content",
+				v.chunk_index,
+				v."metadata",
+				v."createdAt",
+				(1.0 / (60 + v.vector_rank)) + COALESCE((1.0 / (60 + t.text_rank)), 0) AS hybrid_score
+			FROM vector_search v
+			LEFT JOIN text_search t ON v.chunk_id = t.chunk_id
+		)
+		SELECT
+			chunk_id,
+			document_id,
+			"content",
+			chunk_index,
+			"metadata",
+			"createdAt",
+			hybrid_score AS similarity
+		FROM combined
+		ORDER BY hybrid_score DESC
+		LIMIT $5
+	`
+
+	rows, err := r.db.QueryContext(ctx, sql, embedding, distanceThreshold, userID, query, topK)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +216,7 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 	var chunks []entity.SimilarChunk
 	for rows.Next() {
 		var chunk entity.SimilarChunk
-		err := rows.Scan(
+		if err := rows.Scan(
 			&chunk.ID,
 			&chunk.DocumentID,
 			&chunk.ChunkIndex,
@@ -114,8 +224,33 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 			&chunk.Metadata,
 			&chunk.CreatedAt,
 			&chunk.Similarity,
-		)
-		if err != nil {
+		); err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
+}
+
+func (r *chunkRepository) scanSimilarChunks(ctx context.Context, query string, args ...any) ([]entity.SimilarChunk, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chunks []entity.SimilarChunk
+	for rows.Next() {
+		var chunk entity.SimilarChunk
+		if err := rows.Scan(
+			&chunk.ID,
+			&chunk.DocumentID,
+			&chunk.ChunkIndex,
+			&chunk.Content,
+			&chunk.Metadata,
+			&chunk.CreatedAt,
+			&chunk.Similarity,
+		); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, chunk)
@@ -124,18 +259,18 @@ func (r *chunkRepository) SearchSimilar(ctx context.Context, embedding pgvector.
 	return chunks, nil
 }
 
-func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, topK int) ([]entity.SimilarChunk, error) {
+func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, userID string, topK int) ([]entity.SimilarChunk, error) {
 	if len(terms) == 0 {
 		return nil, nil
 	}
 
 	conditions := make([]string, 0, len(terms))
-	args := make([]any, 0, len(terms)+1)
+	args := make([]any, 0, len(terms)+2)
 	for i, term := range terms {
 		conditions = append(conditions, `dc."content" ILIKE $`+strconv.Itoa(i+1))
 		args = append(args, "%"+term+"%")
 	}
-	args = append(args, topK)
+	args = append(args, userID, topK)
 
 	query := `
 		SELECT
@@ -149,9 +284,13 @@ func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, 
 		FROM "document_chunks" dc
 		INNER JOIN "documents" d ON dc."documentId" = d."id"
 		WHERE d."status" = 'COMPLETED'
+		AND (
+			d."visibility" = 'PUBLIC'
+			OR (d."visibility" = 'PRIVATE' AND d."userId" = $` + strconv.Itoa(len(terms)+1) + `)
+		)
 		AND (` + strings.Join(conditions, " OR ") + `)
 		ORDER BY dc."chunkIndex" ASC
-		LIMIT $` + strconv.Itoa(len(terms)+1)
+		LIMIT $` + strconv.Itoa(len(terms)+2)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

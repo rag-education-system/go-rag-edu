@@ -5,12 +5,14 @@ import (
 	"log"
 
 	_ "rag-api/docs"
+	"rag-api/internal/adapter/ollama"
 	"rag-api/internal/adapter/openai"
 	"rag-api/internal/adapter/repository/postgres"
 	"rag-api/internal/adapter/storage"
 	"rag-api/internal/delivery/http/handler"
 	"rag-api/internal/delivery/http/middleware"
 	"rag-api/internal/usecase/auth"
+	"rag-api/internal/usecase/chat"
 	"rag-api/internal/usecase/document"
 	"rag-api/pkg/config"
 	"rag-api/pkg/database"
@@ -44,13 +46,31 @@ func main() {
 	defer db.Close()
 	log.Println("connected to database")
 
-	embeddingClient := openai.NewEmbeddingClient(cfg.OpenAIKey, cfg.OpenAIEmbeddingModel)
+	var embedder document.EmbeddingService
+	if cfg.IsEmbeddingLocal {
+		embedder = ollama.NewEmbeddingClient(cfg.OllamaBaseURL, cfg.OllamaEmbeddingModel, cfg.OllamaEmbeddingDimension)
+		log.Printf("🔢 Embedding: Ollama local model=%s dim=%d", cfg.OllamaEmbeddingModel, cfg.OllamaEmbeddingDimension)
+	} else {
+		embedder = openai.NewEmbeddingClient(cfg.OpenAIKey, cfg.OpenAIEmbeddingModel)
+		log.Printf("🔢 Embedding: OpenAI model=%s", cfg.OpenAIEmbeddingModel)
+	}
+
 	chatClient := openai.NewChatClient(cfg.OpenAIKey, cfg.OpenAIChatModel)
 	chatService := openai.NewDocumentChatService(chatClient)
+
+	reformulator := openai.NewReformulatorAdapter(openai.NewQueryReformulator(
+		cfg.OpenAIKey,
+		cfg.QueryReformulationModel,
+		cfg.QueryReformulationTimeout,
+		cfg.QueryReformulationEnabled,
+	))
 
 	userRepo := postgres.NewUserRepository(db)
 	docRepo := postgres.NewDocumentRepository(db)
 	chunkRepo := postgres.NewChunkRepository(db)
+	convRepo := postgres.NewConversationRepository(db)
+	msgRepo := postgres.NewMessageRepository(db)
+	queryLogRepo := postgres.NewQueryLogRepository(db)
 	fileStorage := storage.NewSupabaseStorage(cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseStorageBucket)
 
 	authUsecase := auth.NewAuthUsecase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
@@ -58,20 +78,24 @@ func main() {
 		docRepo,
 		chunkRepo,
 		fileStorage,
-		embeddingClient,
+		embedder,
 		chatService,
+		reformulator,
 		cfg.ChunkSize,
 		cfg.ChunkOverlap,
 		cfg.TopKResults,
 		cfg.SimilarityThreshold,
+		cfg.UseHybridSearch,
 		cfg.OCREnabled,
 		cfg.OCRLang,
 		cfg.OCRMinTextLength,
 	)
+	chatUsecase := chat.NewChatUsecase(convRepo, msgRepo, queryLogRepo, docUsecase)
 
 	authHandler := handler.NewAuthHandler(authUsecase)
 	userHandler := handler.NewUserHandler(authUsecase)
 	docHandler := handler.NewDocumentHandler(docUsecase)
+	chatHandler := handler.NewChatHandler(chatUsecase, docUsecase)
 
 	app := fiber.New(middleware.FiberConfig(cfg))
 	middleware.ApplySecurity(app, cfg)
@@ -101,7 +125,16 @@ func main() {
 	protected.Delete("/documents/:id", docHandler.Delete)
 	protected.Post("/documents/query", middleware.QueryRateLimit(cfg), docHandler.Query)
 
+	protected.Post("/chat/conversations", middleware.QueryRateLimit(cfg), chatHandler.CreateConversation)
+	protected.Get("/chat/conversations", chatHandler.ListConversations)
+	protected.Get("/chat/conversations/:id", chatHandler.GetConversation)
+	protected.Post("/chat/conversations/:id/messages", middleware.QueryRateLimit(cfg), chatHandler.SendMessage)
+	protected.Post("/chat/stream", middleware.QueryRateLimit(cfg), chatHandler.StreamChat)
+	protected.Delete("/chat/conversations/:id", chatHandler.DeleteConversation)
+
 	log.Printf("🚀 Server starting on port %d", cfg.Port)
+	log.Printf("🧠 RAG: hybrid=%t reformulation=%t threshold=%.2f topK=%d",
+		cfg.UseHybridSearch, cfg.QueryReformulationEnabled, cfg.SimilarityThreshold, cfg.TopKResults)
 	log.Printf("🛡️  Anti-abuse: global=%d/%s auth=%d/%s query=%d/%s upload=%d/%s",
 		cfg.RateLimitGlobalMax, cfg.RateLimitGlobalWindow,
 		cfg.RateLimitAuthMax, cfg.RateLimitAuthWindow,
