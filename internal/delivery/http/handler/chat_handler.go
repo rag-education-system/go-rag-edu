@@ -162,7 +162,13 @@ func (h *ChatHandler) StreamChat(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
-	streamChan, err := h.chatUsecase.ChatStream(c.Context(), access, req.ConversationID, req.Message)
+	streamChan, err := h.chatUsecase.ChatStream(
+		c.Context(),
+		access,
+		req.ConversationID,
+		req.Message,
+		document.ParseChatMode(req.ChatMode),
+	)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

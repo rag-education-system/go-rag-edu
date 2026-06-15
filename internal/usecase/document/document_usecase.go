@@ -428,15 +428,12 @@ func (uc *DocumentUsecase) QueryDocuments(
 		return rag.Answer, nil, nil
 	}
 
-	if rag.DocContext == "" || len(rag.Chunks) == 0 {
-		answer, err := uc.chatService.GenerateAnswer(ctx, query, "[Tidak ada dokumen relevan yang ditemukan. Jawab berdasarkan pengetahuan umum Anda, tapi sebutkan bahwa jawaban tidak bersumber dari dokumen pengguna.]", history)
-		if err != nil {
-			return "Maaf, saya tidak menemukan informasi yang relevan dalam dokumen dan gagal menghasilkan jawaban.", nil, err
-		}
-		return answer, nil, nil
+	plan := PlanRAGResponse(ChatModeHybrid, rag, query)
+	if !plan.UseLLM {
+		return plan.DirectAnswer, nil, nil
 	}
 
-	answer, err := uc.chatService.GenerateAnswer(ctx, query, rag.DocContext, history)
+	answer, err := uc.chatService.GenerateAnswer(ctx, query, plan.DocContext, history)
 	if err != nil {
 		return "", rag.DisplaySources, fmt.Errorf("failed to generate answer: %w", err)
 	}

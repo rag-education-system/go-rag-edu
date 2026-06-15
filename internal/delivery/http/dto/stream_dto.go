@@ -12,4 +12,5 @@ type StreamChunk struct {
 type StreamChatRequest struct {
 	Message        string `json:"message"`
 	ConversationID string `json:"conversationId,omitempty"`
+	ChatMode       string `json:"chatMode,omitempty"`
 }

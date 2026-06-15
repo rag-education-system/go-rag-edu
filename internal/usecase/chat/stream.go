@@ -18,6 +18,7 @@ func (uc *ChatUsecase) ChatStream(
 	access docaccess.Context,
 	conversationID string,
 	message string,
+	chatMode document.ChatMode,
 ) (<-chan dto.StreamChunk, error) {
 	ch := make(chan dto.StreamChunk, 32)
 	userID := access.UserID
@@ -70,38 +71,45 @@ func (uc *ChatUsecase) ChatStream(
 			return
 		}
 
-		// Greeting shortcut
 		if rag.Answer != "" {
 			ch <- dto.StreamChunk{Type: "content", Content: rag.Answer}
 			uc.saveAssistantAndLog(ctx, conv, message, rag.Answer, nil, rag, start, userID)
-			ch <- dto.StreamChunk{Type: "done"}
+			ch <- dto.StreamChunk{Type: "done", Metadata: map[string]any{
+				"responseTimeMs":   time.Since(start).Milliseconds(),
+				"chatMode":         string(chatMode),
+				"responseStrategy": "greeting",
+				"contextUsed":      false,
+			}}
 			return
 		}
+
+		plan := document.PlanRAGResponse(chatMode, rag, message)
 
 		sources := buildChunkSources(ctx, rag.DisplaySources, uc.docUC)
 		if len(sources) > 0 {
 			ch <- dto.StreamChunk{Type: "sources", Sources: sources}
 		}
 
-		docContext := rag.DocContext
-		if docContext == "" {
-			docContext = "[Tidak ada dokumen relevan yang ditemukan. Jawab berdasarkan pengetahuan umum Anda, tapi sebutkan bahwa jawaban tidak bersumber dari dokumen pengguna.]"
+		var answer string
+		if !plan.UseLLM {
+			answer = plan.DirectAnswer
+			ch <- dto.StreamChunk{Type: "content", Content: answer}
+		} else {
+			streamCh, errCh := uc.docUC.GenerateAnswerStream(ctx, message, plan.DocContext, chatHistory)
+
+			var answerBuilder strings.Builder
+			for token := range streamCh {
+				answerBuilder.WriteString(token)
+				ch <- dto.StreamChunk{Type: "content", Content: token}
+			}
+
+			if streamErr := <-errCh; streamErr != nil {
+				ch <- dto.StreamChunk{Type: "error", Error: streamErr.Error()}
+				return
+			}
+			answer = answerBuilder.String()
 		}
 
-		streamCh, errCh := uc.docUC.GenerateAnswerStream(ctx, message, docContext, chatHistory)
-
-		var answerBuilder strings.Builder
-		for token := range streamCh {
-			answerBuilder.WriteString(token)
-			ch <- dto.StreamChunk{Type: "content", Content: token}
-		}
-
-		if streamErr := <-errCh; streamErr != nil {
-			ch <- dto.StreamChunk{Type: "error", Error: streamErr.Error()}
-			return
-		}
-
-		answer := answerBuilder.String()
 		uc.saveAssistantAndLog(ctx, conv, message, answer, sources, rag, start, userID)
 
 		if conv.Title == "Chat Baru" || conv.Title == "" {
@@ -110,8 +118,11 @@ func (uc *ChatUsecase) ChatStream(
 		}
 
 		ch <- dto.StreamChunk{Type: "done", Metadata: map[string]any{
-			"responseTimeMs": time.Since(start).Milliseconds(),
-			"searchType":     rag.SearchType,
+			"responseTimeMs":   time.Since(start).Milliseconds(),
+			"searchType":       rag.SearchType,
+			"chatMode":         string(chatMode),
+			"responseStrategy": string(plan.Strategy),
+			"contextUsed":      plan.Strategy == document.ResponseFromDocuments && len(sources) > 0,
 		}}
 	}()
 
