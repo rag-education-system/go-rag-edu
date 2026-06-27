@@ -48,6 +48,8 @@ func (uc *DocumentUsecase) PrepareRAG(
 		return nil, err
 	}
 
+	uc.enrichChunkDocumentNames(ctx, chunks)
+
 	docContext, displaySources := composeDocContext(query, chunks)
 
 	return &RAGResult{
@@ -57,4 +59,21 @@ func (uc *DocumentUsecase) PrepareRAG(
 		ReformulatedQuery: reformulated,
 		SearchType:        searchType,
 	}, nil
+}
+
+func (uc *DocumentUsecase) enrichChunkDocumentNames(ctx context.Context, chunks []entity.SimilarChunk) {
+	names := make(map[string]string)
+	for i := range chunks {
+		docID := chunks[i].DocumentID
+		if docID == "" || chunks[i].DocumentName != "" {
+			continue
+		}
+		if name, ok := names[docID]; ok {
+			chunks[i].DocumentName = name
+			continue
+		}
+		name := uc.GetDocumentOriginalName(ctx, docID)
+		names[docID] = name
+		chunks[i].DocumentName = name
+	}
 }

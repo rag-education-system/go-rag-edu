@@ -123,6 +123,8 @@ func main() {
 	protected.Get("/chat/conversations/:id", chatHandler.GetConversation)
 	protected.Post("/chat/conversations/:id/messages", middleware.QueryRateLimit(cfg), chatHandler.SendMessage)
 	protected.Post("/chat/stream", middleware.QueryRateLimit(cfg), chatHandler.StreamChat)
+	protected.Patch("/chat/conversations/:id/pin", chatHandler.PinConversation)
+	protected.Patch("/chat/conversations/:id", chatHandler.RenameConversation)
 	protected.Delete("/chat/conversations/:id", chatHandler.DeleteConversation)
 
 	admin := api.Group("", middleware.JWTAuth(cfg.JWTSecret), middleware.RequireAdmin(), middleware.AdminRateLimit(cfg))

@@ -25,14 +25,22 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 	expandedTopK := uc.topK * 3
 	searchType := "vector"
 
-	// Hybrid search with primary query (AI-Hukum-BE pattern)
+	// Generate ALL embeddings in a single batch call for better performance
+	embeddings, err := uc.embedder.GenerateBatchEmbeddings(ctx, searchCandidates)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate query embeddings: %w", err)
+	}
+
+	// Map query to embedding index
+	queryEmbeddings := make(map[string]int)
+	for i, query := range searchCandidates {
+		queryEmbeddings[query] = i
+	}
+
+	// Hybrid search with primary query
 	if uc.useHybridSearch {
-		embeddings, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{searchQuery})
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to generate query embedding: %w", err)
-		}
-		if len(embeddings) > 0 {
-			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[0], access, expandedTopK, uc.threshold)
+		if idx, ok := queryEmbeddings[searchQuery]; ok && idx < len(embeddings) {
+			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[idx], access, expandedTopK, uc.threshold)
 			if err == nil && len(hybridChunks) > 0 {
 				searchType = "hybrid"
 				for _, chunk := range hybridChunks {
@@ -44,16 +52,14 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 		}
 	}
 
+	// Vector search for all candidates using pre-generated embeddings
 	for _, candidate := range searchCandidates {
-		embeddings, err := uc.embedder.GenerateBatchEmbeddings(ctx, []string{candidate})
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to generate query embedding: %w", err)
-		}
-		if len(embeddings) == 0 {
+		idx, ok := queryEmbeddings[candidate]
+		if !ok || idx >= len(embeddings) {
 			continue
 		}
 
-		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[0], access, expandedTopK, uc.threshold)
+		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[idx], access, expandedTopK, uc.threshold)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to search similar chunks: %w", err)
 		}

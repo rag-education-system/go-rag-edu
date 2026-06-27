@@ -68,7 +68,7 @@ func (r *conversationRepository) List(ctx context.Context, userID string, page, 
 	query := `
 		SELECT * FROM "conversations"
 		WHERE "userId" = $1
-		ORDER BY "updatedAt" DESC
+		ORDER BY "pinned" DESC, "pinnedAt" DESC NULLS LAST, "updatedAt" DESC
 		LIMIT $2 OFFSET $3
 	`
 	if err := r.db.SelectContext(ctx, &convs, query, userID, limit, offset); err != nil {
@@ -88,6 +88,18 @@ func (r *conversationRepository) Update(ctx context.Context, conv *entity.Conver
 	conv.UpdatedAt = time.Now()
 	query := `UPDATE "conversations" SET "title" = $1, "updatedAt" = $2 WHERE "id" = $3`
 	_, err := r.db.ExecContext(ctx, query, conv.Title, conv.UpdatedAt, conv.ID)
+	return err
+}
+
+func (r *conversationRepository) SetPinned(ctx context.Context, id string, pinned bool) error {
+	now := time.Now()
+	var pinnedAt *time.Time
+	if pinned {
+		pinnedAt = &now
+	}
+
+	query := `UPDATE "conversations" SET "pinned" = $1, "pinnedAt" = $2, "updatedAt" = $3 WHERE "id" = $4`
+	_, err := r.db.ExecContext(ctx, query, pinned, pinnedAt, now, id)
 	return err
 }
 

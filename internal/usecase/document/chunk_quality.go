@@ -78,6 +78,16 @@ Jika konteks merujuk Word, jelaskan secara eksplisit bahwa dokumen membahas Micr
 Jangan memberikan langkah untuk Google Docs atau pengetahuan umum di luar konteks dokumen.`
 }
 
+func documentLabel(chunk entity.SimilarChunk) string {
+	if name := strings.TrimSpace(chunk.DocumentName); name != "" {
+		return name
+	}
+	if chunk.DocumentID != "" {
+		return chunk.DocumentID
+	}
+	return "dokumen"
+}
+
 func buildRAGContext(chunks []entity.SimilarChunk) (string, []entity.SimilarChunk) {
 	var contextBuilder strings.Builder
 	displaySources := make([]entity.SimilarChunk, 0, len(chunks))
@@ -95,8 +105,8 @@ func buildRAGContext(chunks []entity.SimilarChunk) (string, []entity.SimilarChun
 		}
 
 		contextBuilder.WriteString(fmt.Sprintf(
-			"[Dokumen %d - Similarity: %.2f%s]\n%s\n\n",
-			docIndex,
+			"[Dokumen: %s - Similarity: %.2f%s]\n%s\n\n",
+			documentLabel(chunk),
 			chunk.Similarity,
 			qualityNote,
 			CleanReadableContent(chunk.Content),
@@ -154,8 +164,8 @@ func BuildRAGContextWithQuery(query string, chunks []entity.SimilarChunk) (strin
 		}
 
 		contextBuilder.WriteString(fmt.Sprintf(
-			"[Dokumen %d - Score: %.2f%s]\n%s\n\n",
-			docIndex,
+			"[Dokumen: %s - Score: %.2f%s]\n%s\n\n",
+			documentLabel(sc.chunk),
 			sc.score,
 			qualityNote,
 			CleanReadableContent(sc.chunk.Content),

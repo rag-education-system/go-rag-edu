@@ -25,8 +25,17 @@ type ChatMessageResponse struct {
 type ConversationInfo struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
+	Pinned    bool   `json:"pinned"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
+}
+
+type PinConversationRequest struct {
+	Pinned bool `json:"pinned"`
+}
+
+type RenameConversationRequest struct {
+	Title string `json:"title"`
 }
 
 type ConversationDetail struct {

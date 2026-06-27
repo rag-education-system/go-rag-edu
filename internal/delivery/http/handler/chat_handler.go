@@ -90,12 +90,7 @@ func (h *ChatHandler) ListConversations(c *fiber.Ctx) error {
 
 	convInfos := make([]dto.ConversationInfo, 0, len(convs))
 	for _, conv := range convs {
-		convInfos = append(convInfos, dto.ConversationInfo{
-			ID:        conv.ID,
-			Title:     conv.Title,
-			CreatedAt: conv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: conv.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		convInfos = append(convInfos, toConversationInfo(conv))
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -126,13 +121,55 @@ func (h *ChatHandler) GetConversation(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(dto.ConversationDetail{
-		Conversation: dto.ConversationInfo{
-			ID:        conv.ID,
-			Title:     conv.Title,
-			CreatedAt: conv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: conv.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		},
-		Messages: msgResponses,
+		Conversation: toConversationInfo(*conv),
+		Messages:     msgResponses,
+	})
+}
+
+func (h *ChatHandler) PinConversation(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	conversationID := c.Params("id")
+
+	var req dto.PinConversationRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	conv, err := h.chatUsecase.SetConversationPinned(c.Context(), conversationID, userID, req.Pinned)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data": toConversationInfo(*conv),
+	})
+}
+
+func (h *ChatHandler) RenameConversation(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	conversationID := c.Params("id")
+
+	var req dto.RenameConversationRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	conv, err := h.chatUsecase.RenameConversation(c.Context(), conversationID, userID, req.Title)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err.Error() == "title is required" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data": toConversationInfo(*conv),
 	})
 }
 
@@ -246,4 +283,14 @@ func toMessageResponse(msg *entity.Message, docUC ...*document.DocumentUsecase) 
 	}
 
 	return resp
+}
+
+func toConversationInfo(conv entity.Conversation) dto.ConversationInfo {
+	return dto.ConversationInfo{
+		ID:        conv.ID,
+		Title:     conv.Title,
+		Pinned:    conv.Pinned,
+		CreatedAt: conv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt: conv.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
 }

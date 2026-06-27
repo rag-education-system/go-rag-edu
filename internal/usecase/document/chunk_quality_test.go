@@ -40,6 +40,21 @@ func TestDetectApplicationHint_wordQuery(t *testing.T) {
 	}
 }
 
+func TestBuildRAGContext_usesDocumentName(t *testing.T) {
+	chunks := []entity.SimilarChunk{
+		{
+			DocumentChunk: entity.DocumentChunk{Content: "Konten tentang IoT dan sistem sampah."},
+			Similarity:    0.81,
+			DocumentName:  "jurnal-iot.pdf",
+		},
+	}
+
+	contextText, _ := buildRAGContext(chunks)
+	if !strings.Contains(contextText, "[Dokumen: jurnal-iot.pdf") {
+		t.Fatalf("context = %q, expected document name in label", contextText)
+	}
+}
+
 func TestBuildRAGContext_filtersLowQualitySources(t *testing.T) {
 	chunks := []entity.SimilarChunk{
 		{

@@ -11,5 +11,6 @@ type ConversationRepository interface {
 	FindByIDAndUserID(ctx context.Context, id, userID string) (*entity.Conversation, error)
 	List(ctx context.Context, userID string, page, limit int) ([]entity.Conversation, int, error)
 	Update(ctx context.Context, conv *entity.Conversation) error
+	SetPinned(ctx context.Context, id string, pinned bool) error
 	Delete(ctx context.Context, id string) error
 }

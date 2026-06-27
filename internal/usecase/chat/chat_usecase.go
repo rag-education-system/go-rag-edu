@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
@@ -169,6 +170,63 @@ func (uc *ChatUsecase) DeleteConversation(
 	}
 
 	return uc.convRepo.Delete(ctx, conversationID)
+}
+
+func (uc *ChatUsecase) SetConversationPinned(
+	ctx context.Context,
+	conversationID, userID string,
+	pinned bool,
+) (*entity.Conversation, error) {
+	conv, err := uc.convRepo.FindByIDAndUserID(ctx, conversationID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	if err := uc.convRepo.SetPinned(ctx, conversationID, pinned); err != nil {
+		return nil, err
+	}
+
+	conv.Pinned = pinned
+	if pinned {
+		now := time.Now()
+		conv.PinnedAt = &now
+	} else {
+		conv.PinnedAt = nil
+	}
+	conv.UpdatedAt = time.Now()
+
+	return conv, nil
+}
+
+func (uc *ChatUsecase) RenameConversation(
+	ctx context.Context,
+	conversationID, userID, title string,
+) (*entity.Conversation, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+	if len(title) > 120 {
+		title = title[:120]
+	}
+
+	conv, err := uc.convRepo.FindByIDAndUserID(ctx, conversationID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	conv.Title = title
+	if err := uc.convRepo.Update(ctx, conv); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
 }
 
 func toChatHistory(messages []entity.Message) []document.ChatMessage {

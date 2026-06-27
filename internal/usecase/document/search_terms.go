@@ -57,8 +57,36 @@ func extractSearchTerms(query string) []string {
 	flushWord()
 
 	terms = expandProgramAcronyms(terms)
+	terms = expandSolutionSynonyms(query, terms)
 
 	return terms
+}
+
+var solutionQueryPattern = regexp.MustCompile(`(?i)\b(solusi|mengatasi|penanganan|upaya|tujuan|metode|rancang)\b`)
+
+func expandSolutionSynonyms(query string, terms []string) []string {
+	if !solutionQueryPattern.MatchString(query) {
+		return terms
+	}
+
+	seen := make(map[string]struct{}, len(terms)+8)
+	out := make([]string, 0, len(terms)+8)
+	add := func(term string) {
+		if _, ok := seen[term]; ok {
+			return
+		}
+		seen[term] = struct{}{}
+		out = append(out, term)
+	}
+	for _, term := range terms {
+		add(term)
+	}
+	for _, synonym := range []string{
+		"solusi", "metode", "tujuan", "rancang", "implementasi", "sistem", "desain", "penelitian",
+	} {
+		add(synonym)
+	}
+	return out
 }
 
 var programAcronymExpansions = map[string][]string{

@@ -39,19 +39,20 @@ func (c *ChatClient) GenerateAnswer(
 3. **BEDAKAN** dengan jelas mana yang dari dokumen dan mana dari pengetahuan umum
 
 ## Format Jawaban:
-- Jika menjawab dari dokumen: "Berdasarkan Dokumen X, ..."
+- Jika menjawab dari dokumen: "Berdasarkan dokumen [nama file], ..." — gunakan nama file persis seperti label [Dokumen: ...] di konteks, bukan nomor urut
 - Jika melengkapi dengan pengetahuan umum: "Sebagai tambahan informasi umum, ..." atau "Untuk melengkapi, secara umum..."
 - Jika dokumen tidak relevan sama sekali: Jawab dengan pengetahuan Anda, tapi sebutkan bahwa dokumen tidak membahas topik tersebut
 
 ## Instruksi Detail:
-1. Gunakan riwayat percakapan untuk memahami pertanyaan lanjutan (misalnya "jelaskan poin ketiga" atau "apa maksudnya").
-2. Jika konteks dokumen menyebut topik secara sebagian, jelaskan apa yang ada di dokumen, lalu lengkapi dengan pengetahuan umum jika diperlukan.
-3. Jika ada catatan teks rusak atau placeholder "[rumus/simbol tidak terbaca]", jangan mengutip teks rumus yang rusak; cukup jelaskan bahwa contoh rumus tidak terbaca dan berikan penjelasan umum jika memungkinkan.
-4. Jika ada petunjuk bahwa pengguna menanyakan aplikasi berbeda (misalnya Google Docs vs Microsoft Word), jelaskan perbedaan itu secara eksplisit.
-5. Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca.
-6. Untuk pertanyaan tentang langkah-langkah/tutorial yang tidak ada di dokumen, Anda BOLEH memberikan panduan umum dengan catatan bahwa itu bukan dari dokumen.
-7. Jika informasi berasal dari beberapa dokumen, sebutkan masing-masing sumbernya untuk transparansi.
-8. Untuk pertanyaan faktual/data spesifik (seperti angka, tanggal, nama), prioritaskan data dari dokumen. Jangan mengarang data.`
+1. Gunakan riwayat percakapan untuk memahami pertanyaan lanjutan (misalnya "jelaskan poin ketiga", "apa solusinya", atau "masalah tersebut").
+2. Jika pengguna menanyakan solusi/upaya/metode setelah sebelumnya membahas masalah dari suatu dokumen, cari di konteks dokumen bagian tujuan, metode, rancangan, implementasi, atau solusi yang terkait topik percakapan sebelumnya.
+3. Jika konteks dokumen menyebut topik secara sebagian, jelaskan apa yang ada di dokumen, lalu lengkapi dengan pengetahuan umum jika diperlukan.
+4. Jika ada catatan teks rusak atau placeholder "[rumus/simbol tidak terbaca]", jangan mengutip teks rumus yang rusak; cukup jelaskan bahwa contoh rumus tidak terbaca dan berikan penjelasan umum jika memungkinkan.
+5. Jika ada petunjuk bahwa pengguna menanyakan aplikasi berbeda (misalnya Google Docs vs Microsoft Word), jelaskan perbedaan itu secara eksplisit.
+6. Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca.
+7. Untuk pertanyaan tentang langkah-langkah/tutorial yang tidak ada di dokumen, Anda BOLEH memberikan panduan umum dengan catatan bahwa itu bukan dari dokumen.
+8. Jika informasi berasal dari beberapa dokumen, sebutkan masing-masing sumbernya untuk transparansi.
+9. Untuk pertanyaan faktual/data spesifik (seperti angka, tanggal, nama), prioritaskan data dari dokumen. Jangan mengarang data.`
 
 	messages := []openai.ChatCompletionMessage{
 		{
@@ -122,8 +123,9 @@ func (c *ChatClient) GenerateAnswerStream(
 3. **BEDAKAN** dengan jelas mana yang dari dokumen dan mana dari pengetahuan umum
 
 ## Format Jawaban:
-- Jika menjawab dari dokumen: "Berdasarkan Dokumen X, ..."
+- Jika menjawab dari dokumen: "Berdasarkan dokumen [nama file], ..." — gunakan nama file persis seperti label [Dokumen: ...] di konteks
 - Jika melengkapi dengan pengetahuan umum: "Sebagai tambahan informasi umum, ..."
+- Untuk pertanyaan lanjutan tentang solusi/metode, prioritaskan bagian dokumen tentang tujuan, metode, rancangan, atau implementasi terkait topik sebelumnya
 - Berikan jawaban yang jelas, ringkas, dan terstruktur dalam bahasa Indonesia yang baik dan benar. Gunakan format **Markdown** (heading, bullet/numbered list, bold, code block) agar mudah dibaca`
 
 		messages := []openai.ChatCompletionMessage{

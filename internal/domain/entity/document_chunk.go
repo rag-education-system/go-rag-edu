@@ -24,5 +24,6 @@ type DocumentChunk struct {
 
 type SimilarChunk struct {
 	DocumentChunk
-	Similarity float64 `db:"similarity" json:"similarity"`
+	Similarity   float64 `db:"similarity" json:"similarity"`
+	DocumentName string  `json:"documentName,omitempty"`
 }
