@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.md
+STEP_*.md
+activity-diagram.html
+docs/swagger.yaml
+docs/swagger.json
+cmd/rag-query
+cmd/reprocess
