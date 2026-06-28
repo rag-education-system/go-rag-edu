@@ -15,6 +15,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 	originalQuery string,
 	searchQuery string,
 	history []ChatMessage,
+	documentID string,
 ) ([]entity.SimilarChunk, string, error) {
 	searchCandidates := uniqueStrings([]string{searchQuery, originalQuery})
 	if contextual := buildSearchQuery(originalQuery, history); contextual != originalQuery && contextual != searchQuery {
@@ -23,6 +24,9 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 
 	seenChunks := make(map[string]entity.SimilarChunk)
 	expandedTopK := uc.topK * 3
+	if documentID != "" && isSummaryQuery(originalQuery) {
+		expandedTopK = uc.topK * 8
+	}
 	searchType := "vector"
 
 	// Generate ALL embeddings in a single batch call for better performance
@@ -40,7 +44,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 	// Hybrid search with primary query
 	if uc.useHybridSearch {
 		if idx, ok := queryEmbeddings[searchQuery]; ok && idx < len(embeddings) {
-			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[idx], access, expandedTopK, uc.threshold)
+			hybridChunks, err := uc.chunkRepo.HybridSearchWithAccess(ctx, searchQuery, embeddings[idx], access, expandedTopK, uc.threshold, documentID)
 			if err == nil && len(hybridChunks) > 0 {
 				searchType = "hybrid"
 				for _, chunk := range hybridChunks {
@@ -59,7 +63,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 			continue
 		}
 
-		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[idx], access, expandedTopK, uc.threshold)
+		chunks, err := uc.chunkRepo.SearchSimilarWithAccess(ctx, embeddings[idx], access, expandedTopK, uc.threshold, documentID)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to search similar chunks: %w", err)
 		}
@@ -73,7 +77,7 @@ func (uc *DocumentUsecase) searchRelevantChunks(
 
 	terms := extractSearchTerms(originalQuery)
 	if len(terms) > 0 {
-		keywordChunks, err := uc.chunkRepo.SearchByKeywords(ctx, terms, access, expandedTopK)
+		keywordChunks, err := uc.chunkRepo.SearchByKeywords(ctx, terms, access, expandedTopK, documentID)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to search chunks by keywords: %w", err)
 		}

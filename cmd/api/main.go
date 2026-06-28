@@ -89,6 +89,7 @@ func main() {
 		cfg.OCREnabled,
 		cfg.OCRLang,
 		cfg.OCRMinTextLength,
+		cfg.FullDocMaxChars,
 	)
 	chatUsecase := chat.NewChatUsecase(convRepo, msgRepo, queryLogRepo, docUsecase)
 

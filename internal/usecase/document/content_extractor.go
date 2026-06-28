@@ -2,6 +2,7 @@ package document
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -64,21 +65,16 @@ func (ce *ContentExtractor) Extract(data []byte, mimeType string) (ExtractionRes
 }
 
 func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
-	plainPages, err := ce.plain.ExtractPagesFromPDF(data)
-	if err != nil {
-		return ExtractionResult{}, fmt.Errorf("failed to extract PDF text: %w", err)
+	// Plain extraction may legitimately return no text (e.g. fully scanned PDF).
+	// Treat any error as "no plain text" and let OCR take over instead of failing.
+	plainPages, _ := ce.plain.ExtractPagesFromPDF(data)
+	plainByPage := make(map[int]string, len(plainPages))
+	for _, page := range plainPages {
+		if text := strings.TrimSpace(page.Text); text != "" {
+			plainByPage[page.PageNumber] = text
+		}
 	}
 	plainText := strings.TrimSpace(joinPageTexts(plainPages))
-	plainGarbled := isGarbledText(plainText)
-	needsOCR := len(plainText) < ce.minTextLength || plainGarbled
-
-	if !needsOCR {
-		return ExtractionResult{
-			Text:   CleanReadableContent(plainText),
-			Source: "text",
-			Pages:  plainPages,
-		}, nil
-	}
 
 	if !ce.ocrEnabled {
 		if plainText == "" {
@@ -91,10 +87,23 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		}, nil
 	}
 
-	ocrPages, ocrErr := ce.ocr.ExtractPagesFromPDF(data)
-	ocrText := strings.TrimSpace(joinPageTexts(ocrPages))
+	// Decide OCR per page: a page needs OCR when its text layer is too short or
+	// looks garbled. Pages missing from the text layer (image-only pages) get an
+	// empty string here and are therefore always OCR'd.
+	needsPageOCR := func(pageNumber int) bool {
+		text := plainByPage[pageNumber]
+		return len(text) < ce.minTextLength || isGarbledText(text)
+	}
 
-	if ocrErr != nil {
+	ocrPages, ocrErr := ce.ocr.extractPagesFromPDFSelective(data, needsPageOCR)
+	ocrByPage := make(map[int]string, len(ocrPages))
+	for _, page := range ocrPages {
+		if text := strings.TrimSpace(page.Text); text != "" {
+			ocrByPage[page.PageNumber] = text
+		}
+	}
+
+	if ocrErr != nil && len(ocrByPage) == 0 {
 		if plainText != "" {
 			return ExtractionResult{
 				Text:   CleanReadableContent(plainText),
@@ -105,27 +114,74 @@ func (ce *ContentExtractor) extractPDF(data []byte) (ExtractionResult, error) {
 		return ExtractionResult{}, fmt.Errorf("OCR fallback failed: %w", ocrErr)
 	}
 
-	source := "ocr"
-	selectedPages := ocrPages
-	combined := ocrText
-	if plainText != "" && ocrText != "" {
-		source = "mixed"
-		combined = pickBetterExtractedText(plainText, ocrText)
-		if combined == plainText {
-			selectedPages = plainPages
-		}
-	} else if plainText != "" {
-		source = "text"
-		combined = plainText
-		selectedPages = plainPages
-	}
-
-	combined = CleanReadableContent(combined)
-	if combined == "" {
+	pages, usedPlain, usedOCR := mergePageTexts(plainByPage, ocrByPage)
+	if len(pages) == 0 {
 		return ExtractionResult{}, fmt.Errorf("no text extracted from document")
 	}
 
-	return ExtractionResult{Text: combined, Source: source, Pages: selectedPages}, nil
+	source := "text"
+	switch {
+	case usedPlain && usedOCR:
+		source = "mixed"
+	case usedOCR:
+		source = "ocr"
+	}
+
+	return ExtractionResult{
+		Text:   strings.TrimSpace(joinPageTexts(pages)),
+		Source: source,
+		Pages:  pages,
+	}, nil
+}
+
+// mergePageTexts combines the plain text layer and OCR output page by page so
+// that no page's content is dropped. For pages where both sources have text the
+// better/combined text is kept; otherwise whichever source produced text wins.
+func mergePageTexts(plainByPage, ocrByPage map[int]string) (pages []PageText, usedPlain, usedOCR bool) {
+	pageNumbers := unionPageNumbers(plainByPage, ocrByPage)
+
+	for _, pageNumber := range pageNumbers {
+		plain := plainByPage[pageNumber]
+		ocr := ocrByPage[pageNumber]
+
+		var text string
+		switch {
+		case plain != "" && ocr != "":
+			text = pickBetterExtractedText(plain, ocr)
+			usedPlain = true
+			usedOCR = true
+		case ocr != "":
+			text = ocr
+			usedOCR = true
+		default:
+			text = plain
+			usedPlain = true
+		}
+
+		text = CleanReadableContent(text)
+		if text != "" {
+			pages = append(pages, PageText{PageNumber: pageNumber, Text: text})
+		}
+	}
+
+	return pages, usedPlain, usedOCR
+}
+
+func unionPageNumbers(a, b map[int]string) []int {
+	set := make(map[int]struct{}, len(a)+len(b))
+	for pageNumber := range a {
+		set[pageNumber] = struct{}{}
+	}
+	for pageNumber := range b {
+		set[pageNumber] = struct{}{}
+	}
+
+	numbers := make([]int, 0, len(set))
+	for pageNumber := range set {
+		numbers = append(numbers, pageNumber)
+	}
+	sort.Ints(numbers)
+	return numbers
 }
 
 func (ce *ContentExtractor) extractImage(data []byte) (ExtractionResult, error) {

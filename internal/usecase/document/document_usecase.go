@@ -41,6 +41,7 @@ type DocumentUsecase struct {
 	topK            int
 	threshold       float64
 	useHybridSearch bool
+	fullDocMaxChars int
 }
 
 func NewDocumentUsecase(
@@ -57,6 +58,7 @@ func NewDocumentUsecase(
 	ocrEnabled bool,
 	ocrLang string,
 	ocrMinTextLength int,
+	fullDocMaxChars int,
 ) *DocumentUsecase {
 	return &DocumentUsecase{
 		docRepo:         docRepo,
@@ -70,6 +72,7 @@ func NewDocumentUsecase(
 		topK:            topK,
 		threshold:       threshold,
 		useHybridSearch: useHybridSearch,
+		fullDocMaxChars: fullDocMaxChars,
 	}
 }
 
@@ -419,7 +422,20 @@ func (uc *DocumentUsecase) QueryDocuments(
 	query string,
 	history []ChatMessage,
 ) (string, []entity.SimilarChunk, error) {
-	rag, err := uc.PrepareRAG(ctx, access, query, history)
+	return uc.QueryDocumentsForDocument(ctx, access, "", query, history)
+}
+
+// QueryDocumentsForDocument answers a query optionally scoped to a single
+// document. When documentID is set and the document fits the full-document
+// budget, the whole document is used as context (see PrepareRAGForDocument).
+func (uc *DocumentUsecase) QueryDocumentsForDocument(
+	ctx context.Context,
+	access docaccess.Context,
+	documentID string,
+	query string,
+	history []ChatMessage,
+) (string, []entity.SimilarChunk, error) {
+	rag, err := uc.PrepareRAGForDocument(ctx, access, documentID, query, history)
 	if err != nil {
 		return "", nil, err
 	}

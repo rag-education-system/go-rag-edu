@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"rag-api/internal/delivery/http/dto"
+	"rag-api/internal/domain/docaccess"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/usecase/chat"
 	"rag-api/internal/usecase/document"
@@ -32,7 +34,8 @@ func (h *ChatHandler) CreateConversation(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
-	conv, userMsg, assistantMsg, err := h.chatUsecase.CreateConversation(c.Context(), access, req.Message)
+	documentScope := h.resolveDocumentScope(c, access, req.DocumentID)
+	conv, userMsg, assistantMsg, err := h.chatUsecase.CreateConversation(c.Context(), access, req.Message, documentScope)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -199,11 +202,13 @@ func (h *ChatHandler) StreamChat(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
+	documentScope := h.resolveDocumentScope(c, access, req.DocumentID)
 	streamChan, err := h.chatUsecase.ChatStream(
 		c.Context(),
 		access,
 		req.ConversationID,
 		req.Message,
+		documentScope,
 		document.ParseChatMode(req.ChatMode),
 	)
 	if err != nil {
@@ -285,12 +290,31 @@ func toMessageResponse(msg *entity.Message, docUC ...*document.DocumentUsecase) 
 	return resp
 }
 
+// resolveDocumentScope validates an optional document scope, returning the id
+// only when the document exists and is accessible to the caller. Invalid or
+// inaccessible ids are ignored (treated as no scope) to avoid FK violations.
+func (h *ChatHandler) resolveDocumentScope(c *fiber.Ctx, access docaccess.Context, documentID string) string {
+	documentID = strings.TrimSpace(documentID)
+	if documentID == "" {
+		return ""
+	}
+	doc, err := h.docUsecase.GetDocumentByID(c.Context(), documentID, access)
+	if err != nil || doc == nil {
+		return ""
+	}
+	return documentID
+}
+
 func toConversationInfo(conv entity.Conversation) dto.ConversationInfo {
-	return dto.ConversationInfo{
+	info := dto.ConversationInfo{
 		ID:        conv.ID,
 		Title:     conv.Title,
 		Pinned:    conv.Pinned,
 		CreatedAt: conv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt: conv.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
+	if conv.DocumentID != nil {
+		info.DocumentID = *conv.DocumentID
+	}
+	return info
 }

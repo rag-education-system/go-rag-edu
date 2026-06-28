@@ -27,6 +27,11 @@ type Config struct {
 	SimilarityThreshold float64
 	UseHybridSearch     bool
 
+	// full-document mode: when a conversation is scoped to a single document and
+	// its text fits within this many characters, send the whole document as
+	// context instead of only the top-k retrieved chunks. 0 disables the cap.
+	FullDocMaxChars int
+
 	// query reformulation (AI-Hukum-BE pattern)
 	QueryReformulationEnabled  bool
 	QueryReformulationModel    string
@@ -89,9 +94,10 @@ func Load() *Config {
 
 		ChunkSize:           getEnvInt("CHUNK_SIZE", 1000),
 		ChunkOverlap:        getEnvInt("CHUNK_OVERLAP", 200),
-		TopKResults:         getEnvInt("TOP_K_RESULTS", 6),
+		TopKResults:         getEnvInt("TOP_K_RESULTS", 8),
 		SimilarityThreshold: getEnvFloat("SIMILARITY_THRESHOLD", 0.5),
 		UseHybridSearch:     getEnvBool("USE_HYBRID_SEARCH", true),
+		FullDocMaxChars:     getEnvInt("FULL_DOC_MAX_CHARS", 200000),
 
 		QueryReformulationEnabled: getEnvBool("QUERY_REFORMULATION_ENABLED", true),
 		QueryReformulationModel:   getEnv("QUERY_REFORMULATION_MODEL", "gpt-4o-mini"),

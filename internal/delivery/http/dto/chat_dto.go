@@ -1,7 +1,8 @@
 package dto
 
 type CreateConversationRequest struct {
-	Message string `json:"message"`
+	Message    string `json:"message"`
+	DocumentID string `json:"documentId,omitempty"`
 }
 
 type SendMessageRequest struct {
@@ -23,11 +24,12 @@ type ChatMessageResponse struct {
 }
 
 type ConversationInfo struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Pinned    bool   `json:"pinned"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	DocumentID string `json:"documentId,omitempty"`
+	Pinned     bool   `json:"pinned"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 type PinConversationRequest struct {

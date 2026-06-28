@@ -3,15 +3,20 @@ package document
 import (
 	"bytes"
 	"fmt"
-	"image/png"
 	"os/exec"
 	"strings"
 
 	"github.com/gen2brain/go-fitz"
 )
 
+// defaultOCRDPI controls the render resolution before running Tesseract.
+// Higher DPI yields noticeably better accuracy on scanned documents and
+// small fonts than the go-fitz default (~72 DPI).
+const defaultOCRDPI = 300
+
 type OCRExtractor struct {
 	lang string
+	dpi  float64
 }
 
 func NewOCRExtractor(lang string) *OCRExtractor {
@@ -20,7 +25,7 @@ func NewOCRExtractor(lang string) *OCRExtractor {
 		lang = "eng"
 	}
 
-	return &OCRExtractor{lang: lang}
+	return &OCRExtractor{lang: lang, dpi: defaultOCRDPI}
 }
 
 func (o *OCRExtractor) ExtractFromImage(data []byte) (string, error) {
@@ -50,7 +55,25 @@ func (o *OCRExtractor) ExtractFromPDF(data []byte) (string, error) {
 	return joinPageTexts(pages), nil
 }
 
+// ExtractPagesFromPDF runs OCR on every page of the PDF.
 func (o *OCRExtractor) ExtractPagesFromPDF(data []byte) ([]PageText, error) {
+	pages, err := o.extractPagesFromPDFSelective(data, func(int) bool { return true })
+	if err != nil {
+		return nil, err
+	}
+	if len(pages) == 0 {
+		return nil, fmt.Errorf("no text detected by OCR")
+	}
+	return pages, nil
+}
+
+// extractPagesFromPDFSelective renders and OCRs only the pages for which
+// shouldOCR(pageNumber) returns true. Page numbers are 1-indexed. Pages that
+// produce no text are skipped. A nil shouldOCR means OCR every page.
+func (o *OCRExtractor) extractPagesFromPDFSelective(
+	data []byte,
+	shouldOCR func(pageNumber int) bool,
+) ([]PageText, error) {
 	doc, err := fitz.NewFromMemory(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PDF for OCR: %w", err)
@@ -59,17 +82,17 @@ func (o *OCRExtractor) ExtractPagesFromPDF(data []byte) ([]PageText, error) {
 
 	var pages []PageText
 	for i := 0; i < doc.NumPage(); i++ {
-		img, err := doc.Image(i)
+		pageNumber := i + 1
+		if shouldOCR != nil && !shouldOCR(pageNumber) {
+			continue
+		}
+
+		imgData, err := doc.ImagePNG(i, o.dpi)
 		if err != nil {
 			continue
 		}
 
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err != nil {
-			continue
-		}
-
-		text, err := o.runTesseract(buf.Bytes())
+		text, err := o.runTesseract(imgData)
 		if err != nil {
 			continue
 		}
@@ -77,14 +100,10 @@ func (o *OCRExtractor) ExtractPagesFromPDF(data []byte) ([]PageText, error) {
 		text = strings.TrimSpace(text)
 		if text != "" {
 			pages = append(pages, PageText{
-				PageNumber: i + 1,
+				PageNumber: pageNumber,
 				Text:       text,
 			})
 		}
-	}
-
-	if len(pages) == 0 {
-		return nil, fmt.Errorf("no text detected by OCR")
 	}
 
 	return pages, nil

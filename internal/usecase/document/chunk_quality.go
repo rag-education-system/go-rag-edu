@@ -399,13 +399,22 @@ func IsChunkWorthEmbedding(content string) bool {
 		return false
 	}
 
-	letterCount := 0
+	// Keep table/numeric content (e.g. nilai, IPK, jadwal): measure the ratio of
+	// meaningful characters (letters + digits) among non-space characters, rather
+	// than letters only. This drops pure-symbol OCR noise while preserving rows
+	// that are mostly numbers.
+	nonSpaceCount := 0
+	alphanumericCount := 0
 	for _, r := range content {
-		if unicode.IsLetter(r) {
-			letterCount++
+		if unicode.IsSpace(r) {
+			continue
+		}
+		nonSpaceCount++
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			alphanumericCount++
 		}
 	}
-	if float64(letterCount)/float64(len(content)) < 0.3 {
+	if nonSpaceCount > 0 && float64(alphanumericCount)/float64(nonSpaceCount) < 0.5 {
 		return false
 	}
 

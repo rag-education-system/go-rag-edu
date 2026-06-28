@@ -63,6 +63,7 @@ func main() {
 		cfg.OCREnabled,
 		cfg.OCRLang,
 		cfg.OCRMinTextLength,
+		cfg.FullDocMaxChars,
 	)
 
 	access := docaccess.Context{Role: entity.RoleAdmin}

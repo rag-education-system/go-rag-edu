@@ -26,11 +26,11 @@ func (r *conversationRepository) Create(ctx context.Context, conv *entity.Conver
 	conv.UpdatedAt = time.Now()
 
 	query := `
-		INSERT INTO "conversations" ("id", "userId", "title", "createdAt", "updatedAt")
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO "conversations" ("id", "userId", "title", "documentId", "createdAt", "updatedAt")
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		conv.ID, conv.UserID, conv.Title, conv.CreatedAt, conv.UpdatedAt,
+		conv.ID, conv.UserID, conv.Title, conv.DocumentID, conv.CreatedAt, conv.UpdatedAt,
 	)
 	return err
 }

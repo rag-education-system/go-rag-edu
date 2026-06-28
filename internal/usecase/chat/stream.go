@@ -18,6 +18,7 @@ func (uc *ChatUsecase) ChatStream(
 	access docaccess.Context,
 	conversationID string,
 	message string,
+	documentID string,
 	chatMode document.ChatMode,
 ) (<-chan dto.StreamChunk, error) {
 	ch := make(chan dto.StreamChunk, 32)
@@ -46,6 +47,10 @@ func (uc *ChatUsecase) ChatStream(
 			history, _ = uc.msgRepo.ListByConversation(ctx, conversationID, 20)
 		} else {
 			conv = &entity.Conversation{UserID: userID, Title: generateTitle(message)}
+			if scope := strings.TrimSpace(documentID); scope != "" {
+				conv.DocumentID = &scope
+				conv.Title = uc.documentScopedTitle(ctx, scope, conv.Title)
+			}
 			if err := uc.convRepo.Create(ctx, conv); err != nil {
 				ch <- dto.StreamChunk{Type: "error", Error: "failed to create conversation"}
 				return
@@ -65,7 +70,7 @@ func (uc *ChatUsecase) ChatStream(
 		}
 
 		chatHistory := toChatHistory(history)
-		rag, err := uc.docUC.PrepareRAG(ctx, access, message, chatHistory)
+		rag, err := uc.docUC.PrepareRAGForDocument(ctx, access, conversationDocumentScope(conv), message, chatHistory)
 		if err != nil {
 			ch <- dto.StreamChunk{Type: "error", Error: err.Error()}
 			return

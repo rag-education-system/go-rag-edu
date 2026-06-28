@@ -110,11 +110,19 @@ func (r *chunkRepository) SearchSimilarWithAccess(
 	access docaccess.Context,
 	topK int,
 	threshold float64,
+	documentID string,
 ) ([]entity.SimilarChunk, error) {
 	distanceThreshold := 1 - threshold
 	args := []any{embedding, distanceThreshold}
 	accessCond, accessArgs := docaccess.SQLCondition("d", access, 3)
 	args = append(args, accessArgs...)
+
+	docFilter := ""
+	if documentID = strings.TrimSpace(documentID); documentID != "" {
+		docFilter = fmt.Sprintf(` AND dc."documentId" = $%d`, len(args)+1)
+		args = append(args, documentID)
+	}
+
 	limitParam := len(args) + 1
 	args = append(args, topK)
 
@@ -131,10 +139,10 @@ func (r *chunkRepository) SearchSimilarWithAccess(
 		INNER JOIN "documents" d ON dc."documentId" = d."id"
 		WHERE d."status" = 'COMPLETED'
 		AND (dc."embedding" <=> $1) < $2
-		AND %s
+		AND %s%s
 		ORDER BY dc."embedding" <=> $1
 		LIMIT $%d
-	`, accessCond, limitParam)
+	`, accessCond, docFilter, limitParam)
 
 	return r.scanSimilarChunks(ctx, query, args...)
 }
@@ -147,11 +155,18 @@ func (r *chunkRepository) HybridSearchWithAccess(
 	access docaccess.Context,
 	topK int,
 	threshold float64,
+	documentID string,
 ) ([]entity.SimilarChunk, error) {
 	distanceThreshold := 1 - threshold
 	args := []any{embedding, distanceThreshold}
 	accessCond, accessArgs := docaccess.SQLCondition("d", access, len(args)+1)
 	args = append(args, accessArgs...)
+
+	docFilter := ""
+	if documentID = strings.TrimSpace(documentID); documentID != "" {
+		docFilter = fmt.Sprintf(` AND dc."documentId" = $%d`, len(args)+1)
+		args = append(args, documentID)
+	}
 
 	textQueryParam := len(args) + 1
 	args = append(args, query)
@@ -173,7 +188,7 @@ func (r *chunkRepository) HybridSearchWithAccess(
 			INNER JOIN "documents" d ON dc."documentId" = d."id"
 			WHERE (dc."embedding" <=> $1) < $2
 				AND d."status" = 'COMPLETED'
-				AND %s
+				AND %s%s
 		),
 		text_search AS (
 			SELECT
@@ -186,7 +201,7 @@ func (r *chunkRepository) HybridSearchWithAccess(
 			INNER JOIN "documents" d ON dc."documentId" = d."id"
 			WHERE to_tsvector('simple', dc."content") @@ plainto_tsquery('simple', $%d)
 				AND d."status" = 'COMPLETED'
-				AND %s
+				AND %s%s
 		),
 		combined AS (
 			SELECT
@@ -211,7 +226,7 @@ func (r *chunkRepository) HybridSearchWithAccess(
 		FROM combined
 		ORDER BY hybrid_score DESC
 		LIMIT $%d
-	`, accessCond, textQueryParam, textQueryParam, textQueryParam, accessCond, limitParam)
+	`, accessCond, docFilter, textQueryParam, textQueryParam, textQueryParam, accessCond, docFilter, limitParam)
 
 	rows, err := r.db.QueryContext(ctx, sql, args...)
 	if err != nil {
@@ -265,7 +280,7 @@ func (r *chunkRepository) scanSimilarChunks(ctx context.Context, query string, a
 	return chunks, nil
 }
 
-func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, access docaccess.Context, topK int) ([]entity.SimilarChunk, error) {
+func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, access docaccess.Context, topK int, documentID string) ([]entity.SimilarChunk, error) {
 	if len(terms) == 0 {
 		return nil, nil
 	}
@@ -280,6 +295,13 @@ func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, 
 	accessStart := len(args) + 1
 	accessCond, accessArgs := docaccess.SQLCondition("d", access, accessStart)
 	args = append(args, accessArgs...)
+
+	docFilter := ""
+	if documentID = strings.TrimSpace(documentID); documentID != "" {
+		docFilter = fmt.Sprintf(` AND dc."documentId" = $%d`, len(args)+1)
+		args = append(args, documentID)
+	}
+
 	limitParam := len(args) + 1
 	args = append(args, topK)
 
@@ -295,10 +317,10 @@ func (r *chunkRepository) SearchByKeywords(ctx context.Context, terms []string, 
 		FROM "document_chunks" dc
 		INNER JOIN "documents" d ON dc."documentId" = d."id"
 		WHERE d."status" = 'COMPLETED'
-		AND %s
+		AND %s%s
 		AND (`+strings.Join(conditions, " OR ")+`)
 		ORDER BY dc."chunkIndex" ASC
-		LIMIT $%d`, accessCond, limitParam)
+		LIMIT $%d`, accessCond, docFilter, limitParam)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

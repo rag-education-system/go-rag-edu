@@ -15,9 +15,29 @@ import (
 
 type DocumentQuerier interface {
 	QueryDocuments(ctx context.Context, access docaccess.Context, query string, history []document.ChatMessage) (string, []entity.SimilarChunk, error)
+	QueryDocumentsForDocument(ctx context.Context, access docaccess.Context, documentID string, query string, history []document.ChatMessage) (string, []entity.SimilarChunk, error)
 	PrepareRAG(ctx context.Context, access docaccess.Context, query string, history []document.ChatMessage) (*document.RAGResult, error)
+	PrepareRAGForDocument(ctx context.Context, access docaccess.Context, documentID string, query string, history []document.ChatMessage) (*document.RAGResult, error)
 	GenerateAnswerStream(ctx context.Context, query, docContext string, history []document.ChatMessage) (<-chan string, <-chan error)
 	GetDocumentOriginalName(ctx context.Context, documentID string) string
+}
+
+func conversationDocumentScope(conv *entity.Conversation) string {
+	if conv == nil || conv.DocumentID == nil {
+		return ""
+	}
+	return strings.TrimSpace(*conv.DocumentID)
+}
+
+// documentScopedTitle builds a stable conversation title based on the scoped
+// document's name, e.g. "Tanya: modul.pdf". Falls back to the given default
+// when the document name is unavailable.
+func (uc *ChatUsecase) documentScopedTitle(ctx context.Context, documentID, fallback string) string {
+	name := strings.TrimSpace(uc.docUC.GetDocumentOriginalName(ctx, documentID))
+	if name == "" {
+		return fallback
+	}
+	return "Tanya: " + name
 }
 
 type ChatUsecase struct {
@@ -45,11 +65,16 @@ func (uc *ChatUsecase) CreateConversation(
 	ctx context.Context,
 	access docaccess.Context,
 	message string,
+	documentID string,
 ) (*entity.Conversation, *entity.Message, *entity.Message, error) {
 	title := generateTitle(message)
 	conv := &entity.Conversation{
 		UserID: access.UserID,
 		Title:  title,
+	}
+	if documentID = strings.TrimSpace(documentID); documentID != "" {
+		conv.DocumentID = &documentID
+		conv.Title = uc.documentScopedTitle(ctx, documentID, title)
 	}
 
 	if err := uc.convRepo.Create(ctx, conv); err != nil {
@@ -103,7 +128,7 @@ func (uc *ChatUsecase) processMessage(
 	}
 
 	chatHistory := toChatHistory(history)
-	answer, chunks, err := uc.docUC.QueryDocuments(ctx, access, message, chatHistory)
+	answer, chunks, err := uc.docUC.QueryDocumentsForDocument(ctx, access, conversationDocumentScope(conv), message, chatHistory)
 	if err != nil {
 		return nil, nil, err
 	}

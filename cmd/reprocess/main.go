@@ -64,6 +64,7 @@ func main() {
 		cfg.OCREnabled,
 		cfg.OCRLang,
 		cfg.OCRMinTextLength,
+		cfg.FullDocMaxChars,
 	)
 
 	ctx := context.Background()
