@@ -39,9 +39,18 @@ func ApplySecurity(app *fiber.App, cfg *config.Config) {
 		}))
 	}
 
-	app.Use(timeout.New(func(c *fiber.Ctx) error {
+	requestTimeout := timeout.New(func(c *fiber.Ctx) error {
 		return c.Next()
-	}, cfg.RequestTimeout))
+	}, cfg.RequestTimeout)
+	streamTimeout := timeout.New(func(c *fiber.Ctx) error {
+		return c.Next()
+	}, cfg.StreamRequestTimeout)
+	app.Use(func(c *fiber.Ctx) error {
+		if c.Path() == "/api/chat/stream" {
+			return streamTimeout(c)
+		}
+		return requestTimeout(c)
+	})
 
 	app.Use(GlobalRateLimit(cfg))
 }

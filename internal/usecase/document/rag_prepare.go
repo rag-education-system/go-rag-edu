@@ -63,7 +63,7 @@ func (uc *DocumentUsecase) PrepareRAG(
 
 	searchQuery := query
 	reformulated := ""
-	if uc.reformulator != nil && uc.reformulator.Enabled() {
+	if uc.reformulator != nil && uc.reformulator.Enabled() && NeedsQueryReformulation(query, history) {
 		if r, err := uc.reformulator.ReformulateQuery(ctx, query, history); err == nil && r != "" && r != query {
 			reformulated = r
 			searchQuery = r
@@ -138,7 +138,7 @@ func (uc *DocumentUsecase) prepareScopedRAG(
 
 	searchQuery := query
 	reformulated := ""
-	if uc.reformulator != nil && uc.reformulator.Enabled() {
+	if uc.reformulator != nil && uc.reformulator.Enabled() && NeedsQueryReformulation(query, history) {
 		if r, err := uc.reformulator.ReformulateQuery(ctx, query, history); err == nil && r != "" && r != query {
 			reformulated = r
 			searchQuery = r

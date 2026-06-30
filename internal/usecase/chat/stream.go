@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
@@ -58,39 +59,81 @@ func (uc *ChatUsecase) ChatStream(
 		}
 
 		ch <- dto.StreamChunk{Type: "conversation_id", ConversationID: conv.ID}
+		ch <- dto.StreamChunk{Type: "status", Content: "Mencari konteks dokumen..."}
 
 		userMsg := &entity.Message{
 			ConversationID: conv.ID,
 			Role:           entity.MessageRoleUser,
 			Content:        message,
 		}
-		if err := uc.msgRepo.Create(ctx, userMsg); err != nil {
-			ch <- dto.StreamChunk{Type: "error", Error: "failed to save user message"}
-			return
-		}
+		saveCtx := context.WithoutCancel(ctx)
+		go func() {
+			if err := uc.msgRepo.Create(saveCtx, userMsg); err != nil {
+				log.Printf("[chat/stream] failed to save user message: %v", err)
+			}
+		}()
 
 		chatHistory := toChatHistory(history)
-		rag, err := uc.docUC.PrepareRAGForDocument(ctx, access, conversationDocumentScope(conv), message, chatHistory)
-		if err != nil {
-			ch <- dto.StreamChunk{Type: "error", Error: err.Error()}
+
+		type ragOutcome struct {
+			result *document.RAGResult
+			err    error
+		}
+		ragCh := make(chan ragOutcome, 1)
+		go func() {
+			result, err := uc.docUC.PrepareRAGForDocument(
+				ctx,
+				access,
+				conversationDocumentScope(conv),
+				message,
+				chatHistory,
+			)
+			ragCh <- ragOutcome{result: result, err: err}
+		}()
+
+		heartbeat := time.NewTicker(2 * time.Second)
+		defer heartbeat.Stop()
+
+		var rag *document.RAGResult
+		var ragErr error
+		waitingRAG := true
+		for waitingRAG {
+			select {
+			case <-heartbeat.C:
+				ch <- dto.StreamChunk{Type: "status", Content: "Mencari konteks dokumen..."}
+			case outcome := <-ragCh:
+				rag = outcome.result
+				ragErr = outcome.err
+				waitingRAG = false
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if ragErr != nil {
+			ch <- dto.StreamChunk{Type: "error", Error: ragErr.Error()}
 			return
 		}
 
 		if rag.Answer != "" {
-			ch <- dto.StreamChunk{Type: "content", Content: rag.Answer}
-			uc.saveAssistantAndLog(ctx, conv, message, rag.Answer, nil, rag, start, userID)
+			streamTextChunks(ch, rag.Answer)
 			ch <- dto.StreamChunk{Type: "done", Metadata: map[string]any{
 				"responseTimeMs":   time.Since(start).Milliseconds(),
 				"chatMode":         string(chatMode),
 				"responseStrategy": "greeting",
 				"contextUsed":      false,
 			}}
+			saveCtx = context.WithoutCancel(ctx)
+			go func() {
+				if err := uc.saveAssistantAndLog(saveCtx, conv, message, rag.Answer, nil, rag, start, userID); err != nil {
+					log.Printf("[chat/stream] failed to save greeting response: %v", err)
+				}
+			}()
 			return
 		}
 
 		plan := document.PlanRAGResponse(chatMode, rag, message)
-
-		sources := buildChunkSources(ctx, rag.DisplaySources, uc.docUC)
+		sources := buildChunkSources(rag.DisplaySources, uc.docUC)
 		if len(sources) > 0 {
 			ch <- dto.StreamChunk{Type: "sources", Sources: sources}
 		}
@@ -98,8 +141,10 @@ func (uc *ChatUsecase) ChatStream(
 		var answer string
 		if !plan.UseLLM {
 			answer = plan.DirectAnswer
-			ch <- dto.StreamChunk{Type: "content", Content: answer}
+			streamTextChunks(ch, answer)
 		} else {
+			ch <- dto.StreamChunk{Type: "status", Content: "Menyusun jawaban..."}
+
 			streamCh, errCh := uc.docUC.GenerateAnswerStream(ctx, message, plan.DocContext, chatHistory)
 
 			var answerBuilder strings.Builder
@@ -115,8 +160,6 @@ func (uc *ChatUsecase) ChatStream(
 			answer = answerBuilder.String()
 		}
 
-		uc.saveAssistantAndLog(ctx, conv, message, answer, sources, rag, start, userID)
-
 		if conv.Title == "Chat Baru" || conv.Title == "" {
 			conv.Title = generateTitle(message)
 			_ = uc.convRepo.Update(ctx, conv)
@@ -129,6 +172,13 @@ func (uc *ChatUsecase) ChatStream(
 			"responseStrategy": string(plan.Strategy),
 			"contextUsed":      plan.Strategy == document.ResponseFromDocuments && len(sources) > 0,
 		}}
+
+		saveCtx = context.WithoutCancel(ctx)
+		go func() {
+			if err := uc.saveAssistantAndLog(saveCtx, conv, message, answer, sources, rag, start, userID); err != nil {
+				log.Printf("[chat/stream] failed to save assistant response: %v", err)
+			}
+		}()
 	}()
 
 	return ch, nil
@@ -142,7 +192,7 @@ func (uc *ChatUsecase) saveAssistantAndLog(
 	rag *document.RAGResult,
 	start time.Time,
 	userID string,
-) {
+) error {
 	sourcesJSON := buildSourcesJSONFromDTO(sources)
 	assistantMsg := &entity.Message{
 		ConversationID: conv.ID,
@@ -150,7 +200,9 @@ func (uc *ChatUsecase) saveAssistantAndLog(
 		Content:        answer,
 		Sources:        sourcesJSON,
 	}
-	_ = uc.msgRepo.Create(ctx, assistantMsg)
+	if err := uc.msgRepo.Create(ctx, assistantMsg); err != nil {
+		return err
+	}
 
 	if uc.queryLogRepo != nil && rag != nil {
 		convID := conv.ID
@@ -172,9 +224,32 @@ func (uc *ChatUsecase) saveAssistantAndLog(
 			ResponseTimeMs:    int(time.Since(start).Milliseconds()),
 		})
 	}
+
+	return nil
 }
 
-func buildChunkSources(ctx context.Context, chunks []entity.SimilarChunk, docUC DocumentQuerier) []dto.ChunkSource {
+func streamTextChunks(ch chan<- dto.StreamChunk, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+
+	parts := strings.Fields(text)
+	if len(parts) == 0 {
+		ch <- dto.StreamChunk{Type: "content", Content: text}
+		return
+	}
+
+	for i, part := range parts {
+		token := part
+		if i < len(parts)-1 {
+			token += " "
+		}
+		ch <- dto.StreamChunk{Type: "content", Content: token}
+	}
+}
+
+func buildChunkSources(chunks []entity.SimilarChunk, docUC DocumentQuerier) []dto.ChunkSource {
 	sources := make([]dto.ChunkSource, 0, len(chunks))
 	for _, chunk := range chunks {
 		source := dto.ChunkSource{
@@ -183,7 +258,11 @@ func buildChunkSources(ctx context.Context, chunks []entity.SimilarChunk, docUC 
 			Content:    chunk.Content,
 			ChunkIndex: chunk.ChunkIndex,
 		}
-		if name := docUC.GetDocumentOriginalName(ctx, chunk.DocumentID); name != "" {
+		name := strings.TrimSpace(chunk.DocumentName)
+		if name == "" && docUC != nil {
+			name = docUC.GetDocumentOriginalName(context.Background(), chunk.DocumentID)
+		}
+		if name != "" {
 			source.DocumentName = name
 		}
 		if len(chunk.Metadata) > 0 {

@@ -49,6 +49,7 @@ type Config struct {
 	WriteTimeout           time.Duration
 	IdleTimeout            time.Duration
 	RequestTimeout         time.Duration
+	StreamRequestTimeout   time.Duration
 	TrustedProxies         []string
 	CORSOrigins            []string
 	RateLimitGlobalMax     int
@@ -97,7 +98,11 @@ func Load() *Config {
 		TopKResults:         getEnvInt("TOP_K_RESULTS", 8),
 		SimilarityThreshold: getEnvFloat("SIMILARITY_THRESHOLD", 0.5),
 		UseHybridSearch:     getEnvBool("USE_HYBRID_SEARCH", true),
-		FullDocMaxChars:     getEnvInt("FULL_DOC_MAX_CHARS", 200000),
+		// Smaller default keeps single-document chats fast: docs that fit are sent
+		// in full, larger docs fall back to top-k retrieval (much smaller prompt =>
+		// faster time-to-first-token). Raise FULL_DOC_MAX_CHARS to favor
+		// completeness over latency. ~32k chars ≈ 8k tokens.
+		FullDocMaxChars:     getEnvInt("FULL_DOC_MAX_CHARS", 32000),
 
 		QueryReformulationEnabled: getEnvBool("QUERY_REFORMULATION_ENABLED", true),
 		QueryReformulationModel:   getEnv("QUERY_REFORMULATION_MODEL", "gpt-4o-mini"),
@@ -110,9 +115,11 @@ func Load() *Config {
 
 		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 12),
 		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 10*time.Second),
-		WriteTimeout:          getEnvDuration("WRITE_TIMEOUT", 30*time.Second),
+		// SSE chat streams need a generous write budget; 30s is too short for RAG + LLM.
+		WriteTimeout:          getEnvDuration("WRITE_TIMEOUT", 5*time.Minute),
 		IdleTimeout:           getEnvDuration("IDLE_TIMEOUT", 120*time.Second),
 		RequestTimeout:        getEnvDuration("REQUEST_TIMEOUT", 60*time.Second),
+		StreamRequestTimeout:  getEnvDuration("STREAM_REQUEST_TIMEOUT", 5*time.Minute),
 		TrustedProxies:        getEnvCSV("TRUSTED_PROXIES"),
 		CORSOrigins:           getEnvCSV("CORS_ORIGINS"),
 		RateLimitGlobalMax:    getEnvInt("RATE_LIMIT_GLOBAL_MAX", 120),
