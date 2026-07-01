@@ -42,14 +42,21 @@ func ApplySecurity(app *fiber.App, cfg *config.Config) {
 	requestTimeout := timeout.NewWithContext(func(c *fiber.Ctx) error {
 		return c.Next()
 	}, cfg.RequestTimeout)
+	uploadTimeout := timeout.NewWithContext(func(c *fiber.Ctx) error {
+		return c.Next()
+	}, cfg.UploadRequestTimeout)
 	streamTimeout := timeout.NewWithContext(func(c *fiber.Ctx) error {
 		return c.Next()
 	}, cfg.StreamRequestTimeout)
 	app.Use(func(c *fiber.Ctx) error {
-		if c.Path() == "/api/chat/stream" {
+		switch c.Path() {
+		case "/api/chat/stream":
 			return streamTimeout(c)
+		case "/api/documents/upload":
+			return uploadTimeout(c)
+		default:
+			return requestTimeout(c)
 		}
-		return requestTimeout(c)
 	})
 
 	app.Use(GlobalRateLimit(cfg))

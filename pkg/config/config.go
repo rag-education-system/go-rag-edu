@@ -49,6 +49,7 @@ type Config struct {
 	WriteTimeout           time.Duration
 	IdleTimeout            time.Duration
 	RequestTimeout         time.Duration
+	UploadRequestTimeout   time.Duration
 	StreamRequestTimeout   time.Duration
 	TrustedProxies         []string
 	CORSOrigins            []string
@@ -114,11 +115,11 @@ func Load() *Config {
 		OllamaEmbeddingDimension: getEnvInt("OLLAMA_EMBEDDING_DIMENSION", 1536),
 
 		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 12),
-		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 10*time.Second),
-		// SSE chat streams need a generous write budget; 30s is too short for RAG + LLM.
+		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 120*time.Second),
 		WriteTimeout:          getEnvDuration("WRITE_TIMEOUT", 5*time.Minute),
 		IdleTimeout:           getEnvDuration("IDLE_TIMEOUT", 120*time.Second),
 		RequestTimeout:        getEnvDuration("REQUEST_TIMEOUT", 60*time.Second),
+		UploadRequestTimeout:  getEnvDuration("UPLOAD_REQUEST_TIMEOUT", 3*time.Minute),
 		StreamRequestTimeout:  getEnvDuration("STREAM_REQUEST_TIMEOUT", 5*time.Minute),
 		TrustedProxies:        getEnvCSV("TRUSTED_PROXIES"),
 		CORSOrigins:           getEnvCSV("CORS_ORIGINS"),

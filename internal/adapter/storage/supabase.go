@@ -26,7 +26,7 @@ func NewSupabaseStorage(baseURL, apiKey, bucket string) repository.FileStorage {
 		apiKey:  apiKey,
 		bucket:  bucket,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}
 }
