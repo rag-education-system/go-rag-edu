@@ -254,7 +254,7 @@ func (uc *DocumentUsecase) ListDocuments(
 	access docaccess.Context,
 	page, limit int,
 	status *entity.DocumentStatus,
-) ([]entity.Document, int, error) {
+) ([]entity.DocumentWithUploader, int, error) {
 	return uc.docRepo.List(ctx, access, page, limit, status)
 }
 

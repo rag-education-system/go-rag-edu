@@ -12,6 +12,8 @@ type UploadDocumentResponse struct {
 type DocumentInfo struct {
 	ID           string    `json:"id"`
 	UserID       string    `json:"userId"`
+	UploaderName string    `json:"uploaderName,omitempty"`
+	UploaderRole string    `json:"uploaderRole,omitempty"`
 	Filename     string    `json:"filename"`
 	OriginalName string    `json:"originalName"`
 	FileSize     int64     `json:"fileSize"`

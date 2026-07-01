@@ -48,6 +48,13 @@ func toDocumentInfo(doc entity.Document) dto.DocumentInfo {
 	}
 }
 
+func toDocumentInfoWithUploader(doc entity.DocumentWithUploader) dto.DocumentInfo {
+	info := toDocumentInfo(doc.Document)
+	info.UploaderName = doc.UploaderName
+	info.UploaderRole = string(doc.UploaderRole)
+	return info
+}
+
 // Upload godoc
 // @Summary      Upload a document
 // @Description  Upload a PDF or image file for processing
@@ -133,7 +140,7 @@ func (h *DocumentHandler) List(c *fiber.Ctx) error {
 	// convert to dto
 	var docInfos []dto.DocumentInfo
 	for _, doc := range docs {
-		docInfos = append(docInfos, toDocumentInfo(doc))
+		docInfos = append(docInfos, toDocumentInfoWithUploader(doc))
 	}
 
 	totalPages := (total + limit - 1) / limit

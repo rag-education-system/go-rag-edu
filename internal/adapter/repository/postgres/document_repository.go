@@ -87,7 +87,7 @@ func (r *documentRepository) List(
 	access docaccess.Context,
 	page, limit int,
 	status *entity.DocumentStatus,
-) ([]entity.Document, int, error) {
+) ([]entity.DocumentWithUploader, int, error) {
 	offset := (page - 1) * limit
 
 	accessCond, accessArgs := docaccess.SQLCondition("d", access, 1)
@@ -110,14 +110,19 @@ func (r *documentRepository) List(
 	}
 
 	listQuery := fmt.Sprintf(
-		`SELECT d.* FROM documents d WHERE %s ORDER BY d."createdAt" DESC LIMIT $%d OFFSET $%d`,
+		`SELECT d.*, u.name AS uploader_name, u.role AS uploader_role
+		 FROM documents d
+		 LEFT JOIN users u ON u.id = d."userId"
+		 WHERE %s
+		 ORDER BY d."createdAt" DESC
+		 LIMIT $%d OFFSET $%d`,
 		whereClause,
 		argIdx,
 		argIdx+1,
 	)
 	listArgs := append(append([]any{}, args...), limit, offset)
 
-	var docs []entity.Document
+	var docs []entity.DocumentWithUploader
 	if err := r.db.SelectContext(ctx, &docs, listQuery, listArgs...); err != nil {
 		return nil, 0, err
 	}

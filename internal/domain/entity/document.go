@@ -28,3 +28,9 @@ type Document struct {
 	CreatedAt    time.Time          `db:"createdAt" json:"createdAt"`
 	UpdatedAt    time.Time          `db:"updatedAt" json:"updatedAt"`
 }
+
+type DocumentWithUploader struct {
+	Document
+	UploaderName string   `db:"uploader_name" json:"uploaderName,omitempty"`
+	UploaderRole UserRole `db:"uploader_role" json:"uploaderRole,omitempty"`
+}
