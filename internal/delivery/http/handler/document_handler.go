@@ -33,6 +33,21 @@ func NewDocumentHandler(docUsecase *document.DocumentUsecase) *DocumentHandler {
 	return &DocumentHandler{docUsecase: docUsecase}
 }
 
+func toDocumentInfo(doc entity.Document) dto.DocumentInfo {
+	return dto.DocumentInfo{
+		ID:           doc.ID,
+		UserID:       doc.UserID,
+		Filename:     doc.Filename,
+		OriginalName: doc.OriginalName,
+		FileSize:     doc.FileSize,
+		MimeType:     doc.MimeType,
+		Status:       string(doc.Status),
+		TotalChunks:  doc.TotalChunks,
+		Visibility:   string(doc.Visibility),
+		CreatedAt:    doc.CreatedAt,
+	}
+}
+
 // Upload godoc
 // @Summary      Upload a document
 // @Description  Upload a PDF or image file for processing
@@ -118,17 +133,7 @@ func (h *DocumentHandler) List(c *fiber.Ctx) error {
 	// convert to dto
 	var docInfos []dto.DocumentInfo
 	for _, doc := range docs {
-		docInfos = append(docInfos, dto.DocumentInfo{
-			ID:           doc.ID,
-			Filename:     doc.Filename,
-			OriginalName: doc.OriginalName,
-			FileSize:     doc.FileSize,
-			MimeType:     doc.MimeType,
-			Status:       string(doc.Status),
-			TotalChunks:  doc.TotalChunks,
-			Visibility:   string(doc.Visibility),
-			CreatedAt:    doc.CreatedAt,
-		})
+		docInfos = append(docInfos, toDocumentInfo(doc))
 	}
 
 	totalPages := (total + limit - 1) / limit
@@ -168,17 +173,7 @@ func (h *DocumentHandler) GetByID(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Document not found"})
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.DocumentInfo{
-		ID:           doc.ID,
-		Filename:     doc.Filename,
-		OriginalName: doc.OriginalName,
-		FileSize:     doc.FileSize,
-		MimeType:     doc.MimeType,
-		Status:       string(doc.Status),
-		TotalChunks:  doc.TotalChunks,
-		Visibility:   string(doc.Visibility),
-		CreatedAt:    doc.CreatedAt,
-	})
+	return c.Status(fiber.StatusOK).JSON(toDocumentInfo(*doc))
 }
 
 // Download godoc
@@ -247,18 +242,55 @@ func (h *DocumentHandler) GetPreview(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(dto.DocumentPreviewResponse{
-		Document: dto.DocumentInfo{
-			ID:           doc.ID,
-			Filename:     doc.Filename,
-			OriginalName: doc.OriginalName,
-			FileSize:     doc.FileSize,
-			MimeType:     doc.MimeType,
-			Status:       string(doc.Status),
-			TotalChunks:  doc.TotalChunks,
-			Visibility:   string(doc.Visibility),
-			CreatedAt:    doc.CreatedAt,
-		},
-		Chunks: chunkInfos,
+		Document: toDocumentInfo(*doc),
+		Chunks:   chunkInfos,
+	})
+}
+
+// UpdateVisibility godoc
+// @Summary      Update document visibility
+// @Description  Change document visibility between PUBLIC and PRIVATE (owner only)
+// @Tags         Documents
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string                            true  "Document ID"
+// @Param        request  body      dto.UpdateDocumentVisibilityRequest  true  "Visibility Request"
+// @Success      200      {object}  dto.UpdateDocumentVisibilityResponse
+// @Failure      400      {object}  dto.ErrorResponse
+// @Failure      404      {object}  dto.ErrorResponse
+// @Failure      500      {object}  dto.ErrorResponse
+// @Router       /api/documents/{id}/visibility [patch]
+func (h *DocumentHandler) UpdateVisibility(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
+	documentID := c.Params("id")
+
+	var req dto.UpdateDocumentVisibilityRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	requested := entity.VisibilityPrivate
+	if req.Visibility == "PUBLIC" {
+		requested = entity.VisibilityPublic
+	} else if req.Visibility != "PRIVATE" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "visibility must be PUBLIC or PRIVATE"})
+	}
+
+	visibility := parseRequestedVisibility(access.Role, requested)
+
+	doc, err := h.docUsecase.UpdateDocumentVisibility(c.Context(), documentID, userID, visibility)
+	if err != nil {
+		if err.Error() == "document not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(dto.UpdateDocumentVisibilityResponse{
+		Message:  "Document visibility updated successfully",
+		Document: toDocumentInfo(*doc),
 	})
 }
 

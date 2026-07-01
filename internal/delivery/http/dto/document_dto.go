@@ -11,6 +11,7 @@ type UploadDocumentResponse struct {
 
 type DocumentInfo struct {
 	ID           string    `json:"id"`
+	UserID       string    `json:"userId"`
 	Filename     string    `json:"filename"`
 	OriginalName string    `json:"originalName"`
 	FileSize     int64     `json:"fileSize"`
@@ -19,6 +20,15 @@ type DocumentInfo struct {
 	TotalChunks  int       `json:"totalChunks"`
 	Visibility   string    `json:"visibility"`
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type UpdateDocumentVisibilityRequest struct {
+	Visibility string `json:"visibility" binding:"required" example:"PUBLIC" enums:"PUBLIC,PRIVATE"`
+}
+
+type UpdateDocumentVisibilityResponse struct {
+	Message  string       `json:"message"`
+	Document DocumentInfo `json:"document"`
 }
 
 type ListDocumentsResponse struct {

@@ -4,16 +4,21 @@ import (
 	"rag-api/internal/delivery/http/dto"
 	"rag-api/internal/domain/entity"
 	"rag-api/internal/usecase/auth"
+	"rag-api/pkg/loginlimit"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type AuthHandler struct {
-	authUsecase *auth.AuthUsecase
+	authUsecase  *auth.AuthUsecase
+	loginLimiter *loginlimit.Limiter
 }
 
-func NewAuthHandler(authUsecase *auth.AuthUsecase) *AuthHandler {
-	return &AuthHandler{authUsecase: authUsecase}
+func NewAuthHandler(authUsecase *auth.AuthUsecase, loginLimiter *loginlimit.Limiter) *AuthHandler {
+	return &AuthHandler{
+		authUsecase:  authUsecase,
+		loginLimiter: loginLimiter,
+	}
 }
 
 // Register godoc
@@ -70,6 +75,12 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	var req dto.LoginRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.loginLimiter != nil && !h.loginLimiter.Allow(c.IP(), req.Email) {
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+			"error": "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit.",
+		})
 	}
 
 	token, user, err := h.authUsecase.Login(

@@ -16,6 +16,7 @@ import (
 	"rag-api/internal/usecase/document"
 	"rag-api/pkg/config"
 	"rag-api/pkg/database"
+	"rag-api/pkg/loginlimit"
 
 	"github.com/gofiber/fiber/v2"
 	fiberSwagger "github.com/swaggo/fiber-swagger"
@@ -74,6 +75,7 @@ func main() {
 	fileStorage := storage.NewSupabaseStorage(cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseStorageBucket)
 
 	authUsecase := auth.NewAuthUsecase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
+	loginLimiter := loginlimit.New()
 	docUsecase := document.NewDocumentUsecase(
 		docRepo,
 		chunkRepo,
@@ -93,7 +95,7 @@ func main() {
 	)
 	chatUsecase := chat.NewChatUsecase(convRepo, msgRepo, queryLogRepo, docUsecase)
 
-	authHandler := handler.NewAuthHandler(authUsecase)
+	authHandler := handler.NewAuthHandler(authUsecase, loginLimiter)
 	userHandler := handler.NewUserHandler(authUsecase)
 	docHandler := handler.NewDocumentHandler(docUsecase)
 	chatHandler := handler.NewChatHandler(chatUsecase, docUsecase)
@@ -115,6 +117,7 @@ func main() {
 	protected.Get("/documents/:id/chunks", docHandler.GetPreview)
 	protected.Get("/documents/:id/download", docHandler.Download)
 	protected.Get("/documents/:id", docHandler.GetByID)
+	protected.Patch("/documents/:id/visibility", docHandler.UpdateVisibility)
 	protected.Post("/documents/:id/reprocess", docHandler.Reprocess)
 	protected.Delete("/documents/:id", docHandler.Delete)
 	protected.Post("/documents/query", middleware.QueryRateLimit(cfg), docHandler.Query)

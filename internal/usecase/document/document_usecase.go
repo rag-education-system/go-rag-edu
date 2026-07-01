@@ -359,6 +359,27 @@ func (uc *DocumentUsecase) DownloadDocument(
 	return doc, data, nil
 }
 
+func (uc *DocumentUsecase) UpdateDocumentVisibility(
+	ctx context.Context,
+	documentID, userID string,
+	visibility entity.DocumentVisibility,
+) (*entity.Document, error) {
+	doc, err := uc.docRepo.FindByIDAndUserID(ctx, documentID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found")
+	}
+
+	if err := uc.docRepo.UpdateVisibility(ctx, documentID, visibility); err != nil {
+		return nil, err
+	}
+
+	doc.Visibility = visibility
+	return doc, nil
+}
+
 func (uc *DocumentUsecase) ReprocessDocument(
 	ctx context.Context,
 	documentID string,

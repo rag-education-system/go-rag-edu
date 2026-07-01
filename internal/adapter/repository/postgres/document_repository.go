@@ -151,6 +151,12 @@ func (r *documentRepository) UpdateStoragePath(ctx context.Context, id string, s
 	return err
 }
 
+func (r *documentRepository) UpdateVisibility(ctx context.Context, id string, visibility entity.DocumentVisibility) error {
+	query := `UPDATE documents SET visibility = $1, "updatedAt" = NOW() WHERE id = $2`
+	_, err := r.db.ExecContext(ctx, query, visibility, id)
+	return err
+}
+
 // delete document
 func (r *documentRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM documents WHERE id = $1`

@@ -15,6 +15,7 @@ type DocumentRepository interface {
 	UpdateStatus(ctx context.Context, id string, status entity.DocumentStatus) error
 	UpdateTotalChunks(ctx context.Context, id string, totalChunks int) error
 	UpdateStoragePath(ctx context.Context, id string, storagePath string) error
+	UpdateVisibility(ctx context.Context, id string, visibility entity.DocumentVisibility) error
 	Delete(ctx context.Context, id string) error
 }
 

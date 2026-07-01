@@ -24,5 +24,9 @@ func parseUploadVisibility(c *fiber.Ctx, role entity.UserRole) entity.DocumentVi
 	if c.FormValue("visibility") == "PUBLIC" {
 		requested = entity.VisibilityPublic
 	}
+	return parseRequestedVisibility(role, requested)
+}
+
+func parseRequestedVisibility(role entity.UserRole, requested entity.DocumentVisibility) entity.DocumentVisibility {
 	return docaccess.ResolveUploadVisibility(role, requested)
 }
