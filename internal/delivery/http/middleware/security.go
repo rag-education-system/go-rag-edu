@@ -39,10 +39,10 @@ func ApplySecurity(app *fiber.App, cfg *config.Config) {
 		}))
 	}
 
-	requestTimeout := timeout.New(func(c *fiber.Ctx) error {
+	requestTimeout := timeout.NewWithContext(func(c *fiber.Ctx) error {
 		return c.Next()
 	}, cfg.RequestTimeout)
-	streamTimeout := timeout.New(func(c *fiber.Ctx) error {
+	streamTimeout := timeout.NewWithContext(func(c *fiber.Ctx) error {
 		return c.Next()
 	}, cfg.StreamRequestTimeout)
 	app.Use(func(c *fiber.Ctx) error {
