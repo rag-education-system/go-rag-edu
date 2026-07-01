@@ -79,7 +79,12 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	)
 
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+		switch err.Error() {
+		case "account is disabled":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": err.Error()})
+		default:
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+		}
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "User logged in successfully", "token": token, "user": dto.UserInfo{

@@ -20,7 +20,7 @@ func NewUserRepository(db *sqlx.DB) repository.UserRepository {
 }
 
 const userSelectColumns = `id, email, password, COALESCE("initialPassword", '') AS initial_password, name, major, role,
-	"createdAt" AS created_at, "updatedAt" AS updated_at`
+	COALESCE("isActive", true) AS is_active, "createdAt" AS created_at, "updatedAt" AS updated_at`
 
 // create user
 func (r *userRepository) Create(ctx context.Context, user *entity.User) error {
@@ -28,10 +28,10 @@ func (r *userRepository) Create(ctx context.Context, user *entity.User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
 
-	query := `INSERT INTO users (id, email, password, "initialPassword", name, major, role, "createdAt", "updatedAt") 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	query := `INSERT INTO users (id, email, password, "initialPassword", name, major, role, "isActive", "createdAt", "updatedAt") 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 
-	_, err := r.db.ExecContext(ctx, query, user.ID, user.Email, user.Password, user.InitialPassword, user.Name, user.Major, user.Role, user.CreatedAt, user.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, user.ID, user.Email, user.Password, user.InitialPassword, user.Name, user.Major, user.Role, user.IsActive, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -42,10 +42,10 @@ func (r *userRepository) Create(ctx context.Context, user *entity.User) error {
 func (r *userRepository) Update(ctx context.Context, user *entity.User) error {
 	user.UpdatedAt = time.Now()
 
-	query := `UPDATE users SET email = $1, password = $2, "initialPassword" = $3, name = $4, major = $5, role = $6, "updatedAt" = $7
-		WHERE id = $8`
+	query := `UPDATE users SET email = $1, password = $2, "initialPassword" = $3, name = $4, major = $5, role = $6, "isActive" = $7, "updatedAt" = $8
+		WHERE id = $9`
 
-	_, err := r.db.ExecContext(ctx, query, user.Email, user.Password, user.InitialPassword, user.Name, user.Major, user.Role, user.UpdatedAt, user.ID)
+	_, err := r.db.ExecContext(ctx, query, user.Email, user.Password, user.InitialPassword, user.Name, user.Major, user.Role, user.IsActive, user.UpdatedAt, user.ID)
 	return err
 }
 

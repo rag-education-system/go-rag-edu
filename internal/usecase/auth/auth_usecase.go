@@ -66,6 +66,7 @@ func (uc *AuthUsecase) Register(
 		Name:            name,
 		Major:           major,
 		Role:            role,
+		IsActive:        true,
 	}
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
@@ -96,6 +97,7 @@ func (uc *AuthUsecase) UpdateUserByAdmin(
 	ctx context.Context,
 	userID, email, pass, name, major string,
 	role entity.UserRole,
+	isActive bool,
 ) (*entity.User, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	name = strings.TrimSpace(name)
@@ -127,7 +129,7 @@ func (uc *AuthUsecase) UpdateUserByAdmin(
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if existing != nil && existing.ID != userID {
+	if err == nil && existing.ID != userID {
 		return nil, errors.New("email already registered")
 	}
 
@@ -135,6 +137,7 @@ func (uc *AuthUsecase) UpdateUserByAdmin(
 	user.Name = name
 	user.Major = major
 	user.Role = role
+	user.IsActive = isActive
 
 	if pass != "" {
 		if len(pass) < 5 {
@@ -176,6 +179,10 @@ func (uc *AuthUsecase) Login(
 	}
 	if user == nil {
 		return "", nil, errors.New("invalid credentials")
+	}
+
+	if !user.IsActive {
+		return "", nil, errors.New("account is disabled")
 	}
 
 	// Verify password

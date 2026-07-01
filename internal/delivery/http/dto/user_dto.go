@@ -14,6 +14,7 @@ type UpdateUserRequest struct {
 	Name     string `json:"name" binding:"required" example:"John Doe"`
 	Major    string `json:"major" example:"Computer Science"`
 	Role     string `json:"role" example:"STUDENT" enums:"STUDENT,TEACHER"`
+	IsActive *bool  `json:"isActive" example:"true"`
 }
 
 type AdminUserInfo struct {
@@ -22,6 +23,7 @@ type AdminUserInfo struct {
 	Name            string `json:"name" example:"John Doe"`
 	Major           string `json:"major" example:"Computer Science"`
 	Role            string `json:"role" example:"STUDENT"`
+	IsActive        bool   `json:"isActive" example:"true"`
 	InitialPassword string `json:"initialPassword,omitempty" example:"password123"`
 }
 

@@ -26,6 +26,7 @@ func toAdminUserInfo(user entity.User) dto.AdminUserInfo {
 		Name:            user.Name,
 		Major:           user.Major,
 		Role:            string(user.Role),
+		IsActive:        user.IsActive,
 		InitialPassword: user.InitialPassword,
 	}
 }
@@ -127,6 +128,11 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+
 	user, err := h.authUsecase.UpdateUserByAdmin(
 		c.Context(),
 		userID,
@@ -135,6 +141,7 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		req.Name,
 		req.Major,
 		entity.UserRole(strings.ToUpper(req.Role)),
+		isActive,
 	)
 	if err != nil {
 		switch {

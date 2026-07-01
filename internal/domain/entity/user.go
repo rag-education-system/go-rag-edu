@@ -18,6 +18,7 @@ type User struct {
 	Name            string    `db:"name" json:"name"`
 	Major           string    `db:"major" json:"major"`
 	Role            UserRole  `db:"role" json:"role"`
+	IsActive        bool      `db:"is_active" json:"isActive"`
 	CreatedAt       time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updatedAt"`
 }
