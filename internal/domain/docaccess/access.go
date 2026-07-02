@@ -31,6 +31,15 @@ func CanChoosePublic(role entity.UserRole) bool {
 	return role == entity.RoleAdmin || role == entity.RoleTeacher
 }
 
+// CanManageDocument reports whether the viewer may delete or reprocess a document.
+// Admins have full access; other roles may only manage documents they uploaded.
+func CanManageDocument(access Context, ownerUserID string) bool {
+	if access.Role == entity.RoleAdmin {
+		return true
+	}
+	return access.UserID != "" && access.UserID == ownerUserID
+}
+
 // SQLCondition returns a SQL fragment and args for document access filtering.
 // docAlias is the documents table alias (e.g. "d"). startArgIndex is the first $N placeholder.
 func SQLCondition(docAlias string, access Context, startArgIndex int) (string, []any) {

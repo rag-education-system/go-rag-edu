@@ -309,13 +309,13 @@ func (uc *DocumentUsecase) GetDocumentPreview(
 func (uc *DocumentUsecase) DeleteDocument(
 	ctx context.Context,
 	documentID string,
-	userID string,
+	access docaccess.Context,
 ) error {
-	doc, err := uc.docRepo.FindByIDAndUserID(ctx, documentID, userID)
+	doc, err := uc.docRepo.FindByIDWithAccess(ctx, documentID, access)
 	if err != nil {
 		return err
 	}
-	if doc == nil {
+	if doc == nil || !docaccess.CanManageDocument(access, doc.UserID) {
 		return fmt.Errorf("document not found")
 	}
 
@@ -383,13 +383,13 @@ func (uc *DocumentUsecase) UpdateDocumentVisibility(
 func (uc *DocumentUsecase) ReprocessDocument(
 	ctx context.Context,
 	documentID string,
-	userID string,
+	access docaccess.Context,
 ) (*entity.Document, error) {
-	doc, err := uc.docRepo.FindByIDAndUserID(ctx, documentID, userID)
+	doc, err := uc.docRepo.FindByIDWithAccess(ctx, documentID, access)
 	if err != nil {
 		return nil, err
 	}
-	if doc == nil {
+	if doc == nil || !docaccess.CanManageDocument(access, doc.UserID) {
 		return nil, fmt.Errorf("document not found")
 	}
 	if doc.StoragePath == "" {

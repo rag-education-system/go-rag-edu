@@ -36,6 +36,49 @@ func TestSQLConditionAdmin(t *testing.T) {
 	}
 }
 
+func TestCanManageDocument(t *testing.T) {
+	tests := []struct {
+		name        string
+		access      Context
+		ownerUserID string
+		want        bool
+	}{
+		{
+			name:        "admin can manage any document",
+			access:      Context{UserID: "admin-1", Role: entity.RoleAdmin},
+			ownerUserID: "other-user",
+			want:        true,
+		},
+		{
+			name:        "owner can manage own document",
+			access:      Context{UserID: "u1", Role: entity.RoleTeacher},
+			ownerUserID: "u1",
+			want:        true,
+		},
+		{
+			name:        "teacher cannot manage another users document",
+			access:      Context{UserID: "u1", Role: entity.RoleTeacher},
+			ownerUserID: "u2",
+			want:        false,
+		},
+		{
+			name:        "student cannot manage another users document",
+			access:      Context{UserID: "u1", Role: entity.RoleStudent},
+			ownerUserID: "u2",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CanManageDocument(tt.access, tt.ownerUserID)
+			if got != tt.want {
+				t.Fatalf("CanManageDocument() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSQLConditionNonAdmin(t *testing.T) {
 	cond, args := SQLCondition("d", Context{UserID: "u1", Role: entity.RoleStudent, Major: "PTIK"}, 3)
 	if cond == "TRUE" {

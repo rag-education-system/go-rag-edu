@@ -313,10 +313,10 @@ func (h *DocumentHandler) UpdateVisibility(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents/{id}/reprocess [post]
 func (h *DocumentHandler) Reprocess(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	documentID := c.Params("id")
 
-	doc, err := h.docUsecase.ReprocessDocument(c.Context(), documentID, userID)
+	doc, err := h.docUsecase.ReprocessDocument(c.Context(), documentID, access)
 	if err != nil {
 		status := fiber.StatusInternalServerError
 		if err.Error() == "document not found" || err.Error() == "file not available" {
@@ -347,10 +347,10 @@ func (h *DocumentHandler) Reprocess(c *fiber.Ctx) error {
 // @Failure      500  {object}  dto.ErrorResponse
 // @Router       /api/documents/{id} [delete]
 func (h *DocumentHandler) Delete(c *fiber.Ctx) error {
-	userID, _ := c.Locals("userID").(string)
+	access := documentAccessFromCtx(c)
 	documentID := c.Params("id")
 
-	if err := h.docUsecase.DeleteDocument(c.Context(), documentID, userID); err != nil {
+	if err := h.docUsecase.DeleteDocument(c.Context(), documentID, access); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
