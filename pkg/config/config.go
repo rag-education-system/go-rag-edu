@@ -114,7 +114,7 @@ func Load() *Config {
 		OllamaEmbeddingModel:     getEnv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
 		OllamaEmbeddingDimension: getEnvInt("OLLAMA_EMBEDDING_DIMENSION", 1536),
 
-		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 12),
+		BodyLimitMB:           getEnvInt("BODY_LIMIT_MB", 18),
 		ReadTimeout:           getEnvDuration("READ_TIMEOUT", 120*time.Second),
 		WriteTimeout:          getEnvDuration("WRITE_TIMEOUT", 5*time.Minute),
 		IdleTimeout:           getEnvDuration("IDLE_TIMEOUT", 120*time.Second),

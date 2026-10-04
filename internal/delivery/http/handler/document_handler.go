@@ -25,6 +25,9 @@ func parseChunkPageNumber(metadata []byte) int {
 	return meta.PageNumber
 }
 
+// maxDocumentUploadSize must stay below BODY_LIMIT_MB, otherwise Fiber rejects the request first.
+const maxDocumentUploadSize = 16 * 1024 * 1024
+
 type DocumentHandler struct {
 	docUsecase *document.DocumentUsecase
 }
@@ -76,6 +79,12 @@ func (h *DocumentHandler) Upload(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to get file"})
+	}
+
+	if file.Size > maxDocumentUploadSize {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+			"error": fmt.Sprintf("Ukuran file maksimal %d MB", maxDocumentUploadSize/(1024*1024)),
+		})
 	}
 
 	visibility := parseUploadVisibility(c, access.Role)
